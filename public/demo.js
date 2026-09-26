@@ -4,18 +4,17 @@
 // be tried on a phone with no server. It mirrors the rules in src/server.js and
 // reuses src/logic.js (loaded before this file as window.AALogic) for scoring.
 // It starts empty, like a brand-new account. Jake is a simulated partner who
-// joins when asked and reacts to what you do.
+// joins when asked, proposes a shared goal, agrees to yours, and reacts to
+// what you do.
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v2';
+  const KEY = 'aa.demo.v3';
   const ME = 1;
   const JAKE = 2;
   const JAKE_USER = { id: JAKE, name: 'Jake', username: 'jake' };
-  const JAKE_HABITS = [
-    { title: 'Work out', icon: 'workout', why: 'Stay strong for the season', target_per_week: 4 },
-    { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6 },
-  ];
+  const JAKE_SIDE = { title: 'Work out', icon: 'workout', why: 'Stay strong for the season', target_per_week: 4 };
+  const JAKE_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6 };
 
   function localToday() {
     const d = new Date();
@@ -23,7 +22,7 @@
   }
   const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
-  const fresh = () => ({ me: null, loggedIn: false, partnership: null, members: [], habits: [], checkins: [], events: [], lastSeen: 0, nextId: 1 });
+  const fresh = () => ({ me: null, loggedIn: false, partnership: null, members: [], goals: [], habits: [], checkins: [], events: [], lastSeen: 0, nextId: 1 });
 
   let db;
   try {
@@ -66,7 +65,7 @@
     db.events.push({ id: id(), partnership_id: db.partnership.id, target_id: null, habit_id: null, checkin_id: null, message: '', day: null, created_at: now(), ...e });
   }
 
-  function addHabit(userId, h, today) {
+  function addHabit(userId, h, today, goalId = null) {
     const habit = {
       id: id(),
       partnership_id: db.partnership.id,
@@ -75,19 +74,42 @@
       why: h.why || '',
       target_per_week: h.target_per_week,
       icon: h.icon || 'check',
+      goal_id: goalId,
       created_day: today,
       archived_day: null,
     };
     db.habits.push(habit);
-    addEvent({ actor_id: userId, habit_id: habit.id, kind: 'habit_added', message: `${habit.target_per_week}x / week` });
+    if (!goalId) addEvent({ actor_id: userId, habit_id: habit.id, kind: 'habit_added', message: `${habit.target_per_week}x / week` });
     return habit;
+  }
+
+  const goalLabel = (g) => `${g.title} (${g.target_per_week}x / week)`;
+
+  function propose(userId, g) {
+    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, status: 'proposed' };
+    db.goals.push(goal);
+    addEvent({ actor_id: userId, kind: 'goal_proposed', message: goalLabel(goal) });
+    return goal;
+  }
+
+  function accept(goal, byUser, today) {
+    goal.status = 'active';
+    db.members.forEach((uid) => addHabit(uid, goal, today, goal.id));
+    addEvent({ actor_id: byUser, target_id: goal.proposed_by, kind: 'goal_accepted', message: goalLabel(goal) });
+  }
+
+  // Jake says yes to anything you've proposed.
+  function jakeAgrees(today) {
+    db.goals.filter((g) => g.status === 'proposed' && g.proposed_by === ME).forEach((g) => accept(g, JAKE, today));
   }
 
   function jakeJoins(today) {
     if (db.members.includes(JAKE)) return;
     db.members.push(JAKE);
     addEvent({ actor_id: JAKE, kind: 'joined' });
-    JAKE_HABITS.forEach((h) => addHabit(JAKE, h, today));
+    jakeAgrees(today);
+    addHabit(JAKE, JAKE_SIDE, today);
+    propose(JAKE, JAKE_PROPOSAL);
   }
 
   function upsertCheckin(habit, day, status, note, late) {
@@ -147,8 +169,9 @@
       db.partnership = { id: 1, name: 'Jake & ' + db.me.name, stakes: 'Loser buys dinner', invite_code: code, max_members: 2, created_day: today };
       db.members = [JAKE];
       addEvent({ actor_id: JAKE, kind: 'created', message: db.partnership.name });
-      JAKE_HABITS.forEach((h) => addHabit(JAKE, h, today));
+      addHabit(JAKE, JAKE_SIDE, today);
       addEvent({ actor_id: JAKE, kind: 'stakes', message: db.partnership.stakes });
+      propose(JAKE, JAKE_PROPOSAL);
       db.members.push(ME);
       addEvent({ actor_id: ME, kind: 'joined' });
       return { partnership: { id: 1, name: db.partnership.name } };
@@ -173,6 +196,7 @@
       const ids = db.members;
       const thisWeek = L.weekStart(today);
       const recentFrom = L.addDays(thisWeek, -7);
+      const shared = db.habits.filter((h) => h.goal_id);
       const lastSeen = db.lastSeen;
       const events = db.events.slice(-50).reverse().map((e) => ({
         ...e,
@@ -188,9 +212,11 @@
         members: ids.map(user),
         habits: db.habits.filter((h) => !h.archived_day || h.archived_day > thisWeek),
         checkins: db.checkins.filter((c) => c.day >= recentFrom),
+        goals: db.goals.filter((g) => g.status === 'proposed' || g.status === 'active'),
         week: L.scoreWeek(ids, db.habits, db.checkins, thisWeek),
-        lastWeek: L.scoreWeek(ids, db.habits, db.checkins, recentFrom),
-        streak: ids.length >= 2 ? L.pairStreak(ids, db.habits, db.checkins, today, p.created_day) : { weeks: 0, currentWeekMet: false },
+        sharedWeek: L.scoreWeek(ids, shared, db.checkins, thisWeek),
+        sharedLastWeek: L.scoreWeek(ids, shared, db.checkins, recentFrom),
+        streak: ids.length >= 2 ? L.pairStreak(ids, shared, db.checkins, today, p.created_day) : { weeks: 0, currentWeekMet: false },
         events,
         last_seen_event_id: lastSeen,
       };
@@ -202,10 +228,39 @@
       const habit = addHabit(ME, { title, icon: b.icon, why: text(b.why, 'Why', { required: false }), target_per_week: Number(b.target_per_week) }, b.today);
       return { habit };
     }],
+    ['POST', /^\/api\/goals$/, (b) => {
+      requirePact(b.partnership_id);
+      const title = text(b.title, 'Goal', { max: 80 });
+      const goal = propose(ME, { title, icon: b.icon, why: text(b.why, 'Why', { required: false }), target_per_week: Number(b.target_per_week) });
+      if (db.members.includes(JAKE)) jakeAgrees(b.today);
+      return { goal };
+    }],
+    ['POST', /^\/api\/goals\/(\d+)\/respond$/, (b, q, m) => {
+      const goal = db.goals.find((g) => g.id === Number(m[1]));
+      if (!goal) fail(404, 'Goal not found');
+      if (goal.status !== 'proposed') fail(409, 'That goal was already decided');
+      if (b.answer === 'withdraw') {
+        if (goal.proposed_by !== ME) fail(403, 'Only the person who proposed it can withdraw it');
+        goal.status = 'withdrawn';
+        addEvent({ actor_id: ME, kind: 'goal_withdrawn', message: goalLabel(goal) });
+      } else if (b.answer === 'decline') {
+        goal.status = 'declined';
+        addEvent({ actor_id: ME, target_id: goal.proposed_by, kind: 'goal_declined', message: goalLabel(goal) });
+        addEvent({ actor_id: JAKE, target_id: ME, kind: 'nudge', message: 'Fair. Pick one you will actually do then.' });
+      } else {
+        accept(goal, ME, b.today);
+      }
+      return { ok: true };
+    }],
     ['PATCH', /^\/api\/habits\/(\d+)$/, (b, q, m) => {
       const h = db.habits.find((x) => x.id === Number(m[1]) && x.user_id === ME);
       if (!h) fail(404, 'Habit not found');
-      if (b.archived && !h.archived_day) {
+      if (b.archived && !h.archived_day && h.goal_id) {
+        db.habits.filter((x) => x.goal_id === h.goal_id && !x.archived_day).forEach((x) => (x.archived_day = b.today));
+        db.goals.find((g) => g.id === h.goal_id).status = 'ended';
+        addEvent({ actor_id: ME, habit_id: h.id, kind: 'goal_ended' });
+        addEvent({ actor_id: JAKE, target_id: ME, kind: 'nudge', message: 'You ended it for both of us. Noted.' });
+      } else if (b.archived && !h.archived_day) {
         h.archived_day = b.today;
         addEvent({ actor_id: ME, habit_id: h.id, kind: 'habit_archived' });
         if (db.members.includes(JAKE)) addEvent({ actor_id: JAKE, target_id: ME, habit_id: h.id, kind: 'nudge', message: 'Dropping it already? Noted.' });
@@ -245,7 +300,7 @@
       if (b.kind === 'nudge' && h && !doneToday) {
         upsertCheckin(h, today, 'done', pick(['Fine. Did it. Happy?', 'Doing it now. Relax.', 'Done. You owe me a coffee for the stress.']), 0);
       } else {
-        addEvent({ actor_id: JAKE, target_id: ME, kind: 'cheer', message: pick(['🙏', 'Appreciate it', 'Now do yours']) });
+        addEvent({ actor_id: JAKE, target_id: ME, kind: 'cheer', message: pick(['Appreciate it', 'Now do yours', 'Right back at you']) });
       }
       return { ok: true };
     }],

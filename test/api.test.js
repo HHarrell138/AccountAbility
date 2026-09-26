@@ -152,3 +152,60 @@ test('older databases get the habit icon column added', () => {
   assert.equal(db.prepare('SELECT icon FROM habits').get().icon, 'check');
   db.close();
 });
+
+test('shared goals: propose, agree, compare, and end together', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const a = client(base);
+  const b = client(base);
+  await a('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await b('POST', '/api/signup', { name: 'Jake', username: 'jake', password: 'password123' });
+  const { id: pid, invite_code } = (await a('POST', '/api/partnerships', { today })).data.partnership;
+
+  // Propose before the partner even joins; it waits for them.
+  const water = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 1, today })).data.goal;
+  assert.equal(water.status, 'proposed');
+  await b('POST', '/api/partnerships/join', { code: invite_code });
+  const gym = (await b('POST', '/api/goals', { partnership_id: pid, title: 'Work out', icon: 'workout', target_per_week: 4, today })).data.goal;
+
+  // You can't accept your own proposal, and nothing counts until it's agreed.
+  assert.equal((await a('POST', `/api/goals/${water.id}/respond`, { answer: 'accept', today })).status, 403);
+  let dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.habits.length, 0);
+  assert.equal(dash.goals.length, 2);
+
+  assert.equal((await b('POST', `/api/goals/${water.id}/respond`, { answer: 'accept', today })).status, 200);
+  assert.equal((await a('POST', `/api/goals/${gym.id}/respond`, { answer: 'decline' })).status, 200);
+  assert.equal((await a('POST', `/api/goals/${gym.id}/respond`, { answer: 'accept', today })).status, 409);
+
+  // A side goal is personal and stays out of the pair streak.
+  await a('POST', '/api/habits', { partnership_id: pid, title: 'Edit a video', target_per_week: 1, today });
+
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  const shared = dash.habits.filter((h) => h.goal_id === water.id);
+  assert.equal(shared.length, 2); // one for each of you
+  assert.deepEqual(dash.goals.map((g) => g.status), ['active']);
+
+  const mine = shared.find((h) => h.user_id === dash.me);
+  const theirs = shared.find((h) => h.user_id !== dash.me);
+  await a('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today });
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.sharedWeek.members[dash.me].met, true);
+  assert.equal(dash.sharedWeek.allMet, false);
+  assert.equal(dash.streak.weeks, 0);
+
+  await b('POST', '/api/checkins', { habit_id: theirs.id, status: 'done', today });
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.sharedWeek.allMet, true);
+  assert.deepEqual(dash.streak, { weeks: 1, currentWeekMet: true }); // side goal not done, streak still counts
+
+  // Either of you can end it, and it ends for both.
+  assert.equal((await b('PATCH', `/api/habits/${theirs.id}`, { archived: true, today })).status, 200);
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.goals.length, 0);
+  assert.equal(dash.events[0].kind, 'goal_ended');
+  assert.equal((await a('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today })).status, 400);
+});

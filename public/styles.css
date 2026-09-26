@@ -152,6 +152,9 @@ input:focus, select:focus, textarea:focus, button:focus-visible, summary:focus-v
 .btn.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
 .btn.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
 .btn.small { min-height: 36px; padding: 0 12px; font-size: 0.9rem; }
+.ui-icon { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
+.logged, .seg label, summary { display: inline-flex; align-items: center; gap: 6px; }
+p.done .logged, p.missed .logged { font-weight: 700; }
 .btn:disabled { opacity: 0.6; cursor: progress; }
 form > .btn { width: 100%; margin-top: 8px; }
 
@@ -210,7 +213,9 @@ form > .btn { width: 100%; margin-top: 8px; }
 
 /* score */
 .streak { display: flex; align-items: center; gap: 12px; }
-.flame { font-size: 2.2rem; }
+.streak-tile { width: 52px; height: 52px; border-radius: 14px; --tile: var(--bg); --tint: var(--muted); }
+.streak-tile.lit { --tile: var(--c-fire-bg); --tint: var(--c-fire); }
+.streak-icon { width: 30px; height: 30px; }
 .streak-num { font-size: 1.6rem; font-weight: 800; }
 .who { list-style: none; padding: 0; margin: 12px 0 8px; display: grid; gap: 6px; }
 .who li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -330,10 +335,32 @@ form > .btn { width: 100%; margin-top: 8px; }
 .seg input { width: auto; margin: 0; }
 .seg label:has(input:checked) { border-color: var(--brand); background: var(--bg); }
 
+.add-shared { border-color: var(--brand); }
 .add summary { cursor: pointer; font-weight: 700; color: var(--brand); list-style: none; }
 .add summary::-webkit-details-marker { display: none; }
 
 .empty { color: var(--muted); padding: 8px 0; }
+
+/* shared goals: both people side by side */
+.goal { border-width: 2px; border-color: var(--brand); }
+.duo { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+.duo-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.duo-name { font-weight: 700; }
+.duo-count { font-variant-numeric: tabular-nums; margin-right: auto; }
+.duo .dots { gap: 5px; margin: 8px 0 4px; }
+.duo .dot { max-width: 34px; font-size: 0.68rem; }
+
+/* side goals sit a step down from shared ones */
+.side .card.habit { box-shadow: none; }
+.side h2 { margin-bottom: 2px; }
+
+.proposals { border: 2px dashed var(--accent); }
+.proposal { display: flex; gap: 12px; padding-top: 12px; }
+.proposal + .proposal { border-top: 1px solid var(--line); margin-top: 12px; }
+.proposal-body { flex: 1 1 auto; min-width: 0; }
+.proposal-title { font-weight: 700; margin: 2px 0; overflow-wrap: anywhere; }
+.proposal .row { margin-top: 6px; }
+.proposal .row .btn { flex: 0 1 auto; }
 
 /* feed */
 .feed { list-style: none; padding: 0; margin: 8px 0 0; }

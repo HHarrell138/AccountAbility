@@ -18,19 +18,30 @@
     read: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
     sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
   };
+  // Interface icons, same line style.
+  const UI_ICONS = {
+    done: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+    star: '<path d="M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8z"/>',
+    bell: '<path d="M6.5 16v-5a5.5 5.5 0 0 1 11 0v5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    calories: ICONS.calories,
+  };
+  const uiIcon = (key, cls = '') =>
+    `<svg class="ui-icon ${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${UI_ICONS[key]}</svg>`;
   const iconSvg = (key) =>
     `<svg class="hicon i-${esc(key)}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[key] || ICONS.check}</svg>`;
 
   // Presets fill in the add-habit form. {n} is the amount the person picks.
   const PRESETS = [
-    { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, step: 0.25, min: 0.25, unit: 'gallons', days: 7 },
-    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, step: 5, min: 5, unit: 'grams', days: 7 },
-    { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, step: 50, min: 500, unit: 'calories', days: 7 },
-    { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, step: 50, min: 500, unit: 'calories', days: 6 },
+    { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7 },
+    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7 },
+    { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7 },
+    { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, min: 500, unit: 'calories', days: 6 },
     { key: 'workout', icon: 'workout', label: 'Workout', title: () => 'Work out', days: 4 },
-    { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, step: 500, min: 500, unit: 'steps', days: 5 },
-    { key: 'read', icon: 'read', label: 'Read', title: (n) => `Read ${n} pages`, amount: 20, step: 5, min: 1, unit: 'pages', days: 5 },
-    { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, step: 0.5, min: 4, unit: 'hours', days: 5 },
+    { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, min: 500, unit: 'steps', days: 5 },
+    { key: 'read', icon: 'read', label: 'Read', title: (n) => `Read ${n} pages`, amount: 20, min: 1, unit: 'pages', days: 5 },
+    { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, min: 4, unit: 'hours', days: 5 },
     { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
   ];
 
@@ -41,8 +52,8 @@
     dash: null,
     authMode: 'signup',
     panel: null, // { type: 'checkin', habitId, status, day } | { type: 'nudge', habitId, userId }
-    addOpen: false, // add-habit section expanded
-    preset: null, // selected preset key in the add-habit form
+    addOpen: null, // which goal picker is open: 'shared' | 'side' | null
+    preset: null, // selected preset key in the open picker
   };
 
   // ---------- utils ----------
@@ -197,8 +208,11 @@
     const d = state.dash;
     const me = d.members.find((m) => m.id === d.me);
     const partners = d.members.filter((m) => m.id !== d.me);
+    const partnerName = partners[0] ? esc(partners[0].name) : 'your partner';
     const waiting = d.members.length < d.partnership.max_members;
-    const mine = d.habits.filter((h) => h.user_id === d.me);
+    const active = d.goals.filter((g) => g.status === 'active');
+    const proposals = d.goals.filter((g) => g.status === 'proposed');
+    const sideMine = d.habits.filter((h) => h.user_id === d.me && !h.goal_id);
     const unread = d.events.filter((e) => e.id > d.last_seen_event_id && e.actor_id !== d.me).length;
 
     return `
@@ -209,21 +223,29 @@
 
       ${waiting ? inviteCard() : ''}
       ${scoreCard(me, partners)}
+      ${proposals.length ? proposalsCard(proposals) : ''}
 
       <section>
-        <h2>Your habits <span class="muted small">today, ${esc(prettyDay(d.today))}</span></h2>
-        ${mine.length ? mine.map((h) => habitCard(h, true)).join('') : `<p class="empty">Nothing on the line yet. Add a habit so ${partners[0] ? esc(partners[0].name) : 'your partner'} has something to hold you to.</p>`}
-        ${addHabitForm(mine.length === 0)}
+        <h2>Shared goals <span class="muted small">today, ${esc(prettyDay(d.today))}</span></h2>
+        ${active.length
+          ? active.map(goalCard).join('')
+          : `<p class="empty">${proposals.length ? 'Nothing is agreed yet.' : 'Agree on your first goal.'} You're both held to shared goals, and they're what your streak counts.</p>`}
+        ${addForm('shared', active.length === 0 && proposals.length === 0, partnerName)}
+      </section>
+
+      <section class="side">
+        <h2>Your side goals</h2>
+        <p class="small muted">Just yours. ${partnerName} can see them, but they don't count toward the streak.</p>
+        ${sideMine.map((h) => habitCard(h, true)).join('')}
+        ${addForm('side', false, partnerName)}
       </section>
 
       ${partners
         .map((p) => {
-          const theirs = d.habits.filter((h) => h.user_id === p.id);
-          return `
-          <section>
-            <h2>${esc(p.name)}'s habits</h2>
-            ${theirs.length ? theirs.map((h) => habitCard(h, false)).join('') : `<p class="empty">${esc(p.name)} hasn't committed to anything yet. Give them a nudge.</p>${nudgeRow(p.id, null)}`}
-          </section>`;
+          const theirs = d.habits.filter((h) => h.user_id === p.id && !h.goal_id);
+          return theirs.length
+            ? `<section class="side"><h2>${esc(p.name)}'s side goals</h2>${theirs.map((h) => habitCard(h, false)).join('')}</section>`
+            : '';
         })
         .join('')}
 
@@ -249,7 +271,7 @@
     return `
       <section class="card invite">
         <h3>Waiting on your partner</h3>
-        <p>Send them this code. They sign up, tap <em>Join with a code</em>, and you're locked in.</p>
+        <p>Send them this code. They sign up, tap <em>Join with a code</em>, and you're locked in. You can propose shared goals now; they start once your partner agrees.</p>
         <div class="code">${esc(code)}</div>
         <button class="btn" data-action="share-code" data-code="${esc(code)}">Share invite</button>
         ${window.AA_DEMO ? `<button class="btn primary" data-action="demo-join">Preview: have your partner join</button>` : ''}
@@ -261,25 +283,25 @@
     const s = d.streak;
     const people = [me, ...partners];
     const status = (m) => {
-      const ms = d.week.members[m.id];
-      if (!ms || ms.habits.length === 0) return `<span class="pill">no habits</span>`;
+      const ms = d.sharedWeek.members[m.id];
+      if (!ms || ms.habits.length === 0) return `<span class="pill">no shared goals yet</span>`;
       const hit = ms.habits.filter((h) => h.met).length;
-      return ms.met ? `<span class="pill good">week won</span>` : `<span class="pill">${hit}/${ms.habits.length} targets hit</span>`;
+      return ms.met ? `<span class="pill good">week won</span>` : `<span class="pill">${hit}/${ms.habits.length} shared goals hit</span>`;
     };
-    const lw = d.lastWeek;
-    const lastWeekLine =
-      d.partnership.created_day <= lw.end && people.length > 1
-        ? lw.allMet
-          ? 'Last week: you both delivered.'
-          : `Last week: ${people.filter((m) => !lw.members[m.id]?.met).map((m) => (m.id === d.me ? 'you' : esc(m.name))).join(' and ')} came up short.`
-        : '';
+    const lw = d.sharedLastWeek;
+    const hadGoals = people.length > 1 && people.every((m) => lw.members[m.id]?.habits.length);
+    const lastWeekLine = hadGoals
+      ? lw.allMet
+        ? 'Last week: you both delivered.'
+        : `Last week: ${people.filter((m) => !lw.members[m.id]?.met).map((m) => (m.id === d.me ? 'you' : esc(m.name))).join(' and ')} came up short.`
+      : '';
     return `
       <section class="card score">
         <div class="streak">
-          <span class="flame" aria-hidden="true">${s.weeks > 0 ? '🔥' : '🪵'}</span>
+          <span class="icon-tile streak-tile ${s.weeks > 0 ? 'lit' : ''}">${uiIcon('calories', 'streak-icon')}</span>
           <div>
             <div class="streak-num">${s.weeks} week${s.weeks === 1 ? '' : 's'}</div>
-            <div class="muted small">pair streak: both of you hit every target</div>
+            <div class="muted small">pair streak: you both hit every shared goal</div>
           </div>
         </div>
         <ul class="who">
@@ -287,24 +309,53 @@
         </ul>
         ${lastWeekLine ? `<p class="small">${lastWeekLine}</p>` : ''}
         <form class="stakes" data-form="stakes">
-          <label>On the line
-            <input name="stakes" maxlength="200" value="${esc(d.partnership.stakes)}" placeholder="Loser buys coffee">
+          <label for="stakes-input">On the line
+            <input id="stakes-input" name="stakes" maxlength="200" value="${esc(d.partnership.stakes)}" placeholder="Loser buys coffee">
           </label>
           <button class="btn small" type="submit">Save</button>
         </form>
       </section>`;
   }
 
-  function habitCard(h, mine) {
+  function proposalsCard(proposals) {
+    const d = state.dash;
+    const nameOf = (id) => esc(d.members.find((m) => m.id === id)?.name || 'Your partner');
+    const partner = d.members.find((m) => m.id !== d.me);
+    return `
+      <section class="card proposals">
+        <h3>Waiting for a yes</h3>
+        ${proposals
+          .map((g) => {
+            const mine = g.proposed_by === d.me;
+            return `
+            <div class="proposal">
+              <span class="icon-tile">${iconSvg(g.icon)}</span>
+              <div class="proposal-body">
+                <p class="small muted">${mine ? `You proposed. ${partner ? `Waiting on ${esc(partner.name)}.` : 'Waiting for your partner to join.'}` : `${nameOf(g.proposed_by)} wants you both to:`}</p>
+                <p class="proposal-title">${esc(g.title)} <span class="muted">${g.target_per_week}x / week</span></p>
+                ${g.why ? `<p class="why">${esc(g.why)}</p>` : ''}
+                <div class="row">
+                  ${mine
+                    ? `<button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="withdraw">Withdraw</button>`
+                    : `<button class="btn small primary" data-action="respond" data-goal="${g.id}" data-answer="accept">${uiIcon('done')}Agree</button>
+                       <button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="decline">Pass</button>`}
+                </div>
+              </div>
+            </div>`;
+          })
+          .join('')}
+      </section>`;
+  }
+
+  // Everything a card needs to show one person's week on one habit.
+  function habitWeek(h) {
     const d = state.dash;
     const start = weekStart(d.today);
-    const yesterday = addDays(d.today, -1);
     const byDay = new Map(d.checkins.filter((c) => c.habit_id === h.id).map((c) => [c.day, c]));
     const score = d.week.members[h.user_id]?.habits.find((x) => x.habit_id === h.id);
     const done = score ? score.done : 0;
     const target = score ? score.target : h.target_per_week;
     const todayC = byDay.get(d.today);
-    const yesterdayC = byDay.get(yesterday);
     const daysLeft = 7 - Math.round((Date.parse(d.today) - Date.parse(start)) / 86400000) - (todayC ? 1 : 0);
     const need = Math.max(0, target - done);
 
@@ -322,40 +373,96 @@
       return `<span class="${cls}" title="${esc(title)}"><span class="lbl">${label}</span></span>`;
     }).join('');
 
-    const panel = state.panel;
-    let actions = '';
-    if (mine) {
-      if (panel && panel.type === 'checkin' && panel.habitId === h.id) {
-        actions = checkinPanel(h, panel);
-      } else if (panel && panel.type === 'archive' && panel.habitId === h.id) {
-        actions = `
-          <div class="panel">
-            <p class="small"><strong>Drop this habit?</strong> Your partner will see that you dropped it, and this week still counts.</p>
-            <div class="row">
-              <button class="btn danger" data-action="archive" data-habit="${h.id}">Drop it</button>
-              <button class="btn" data-action="close-panel">Keep it</button>
-            </div>
-          </div>`;
-      } else {
-        const yesterdayOpen = !yesterdayC && yesterday >= h.created_day;
-        actions = `
-          <div class="row">
-            ${todayC
-              ? `<span class="logged ${todayC.status}">${todayC.status === 'done' ? '✓ Done today' : '✗ Missed today'}</span>
-                 <button class="link" data-action="open-checkin" data-habit="${h.id}" data-status="${todayC.status === 'done' ? 'missed' : 'done'}" data-day="${d.today}">change</button>`
-              : `<button class="btn primary" data-action="open-checkin" data-habit="${h.id}" data-status="done" data-day="${d.today}">✓ Done</button>
-                 <button class="btn" data-action="open-checkin" data-habit="${h.id}" data-status="missed" data-day="${d.today}">✗ Missed</button>`}
-          </div>
-          ${yesterdayOpen ? `<button class="link small" data-action="open-checkin" data-habit="${h.id}" data-status="done" data-day="${yesterday}">Forgot yesterday? Log it (shows as late)</button>` : ''}
-          <button class="link small quiet" data-action="confirm-archive" data-habit="${h.id}">Drop this habit</button>`;
-      }
-    } else {
-      const status = todayC
-        ? `<p class="small ${todayC.status}">${todayC.status === 'done' ? '✓ Done today' : '✗ Missed today'}${todayC.note ? `: “${esc(todayC.note)}”` : ''}</p>`
-        : `<p class="small muted">Not checked in today</p>`;
-      actions = status + nudgeRow(h.user_id, h.id, !todayC || todayC.status !== 'done');
-    }
+    const prorated = target < h.target_per_week ? `<span class="muted small">First week, so the goal is ${target} instead of ${h.target_per_week}</span>` : '';
+    return { byDay, done, target, todayC, yesterdayC: byDay.get(addDays(d.today, -1)), outlook, dots, prorated };
+  }
 
+  const statusLine = (c) =>
+    c.status === 'done'
+      ? `<span class="logged done">${uiIcon('done')}Done today</span>`
+      : `<span class="logged missed">${uiIcon('x')}Missed today</span>`;
+
+  // Check-in controls on your own habit (side goal or your half of a shared one).
+  function myActions(h, w, shared) {
+    const d = state.dash;
+    const panel = state.panel;
+    if (panel && panel.type === 'checkin' && panel.habitId === h.id) return checkinPanel(h, panel);
+    if (panel && panel.type === 'archive' && panel.habitId === h.id) {
+      const partner = d.members.find((m) => m.id !== d.me);
+      return `
+        <div class="panel">
+          <p class="small">${shared
+            ? `<strong>End this shared goal?</strong> It ends for both of you, ${partner ? esc(partner.name) : 'your partner'} sees that you ended it, and this week still counts.`
+            : `<strong>Drop this goal?</strong> Your partner will see that you dropped it, and this week still counts.`}</p>
+          <div class="row">
+            <button class="btn danger" data-action="archive" data-habit="${h.id}">${shared ? 'End it' : 'Drop it'}</button>
+            <button class="btn" data-action="close-panel">Keep it</button>
+          </div>
+        </div>`;
+    }
+    const yesterday = addDays(d.today, -1);
+    const yesterdayOpen = !w.yesterdayC && yesterday >= h.created_day;
+    return `
+      <div class="row">
+        ${w.todayC
+          ? `${statusLine(w.todayC)}
+             <button class="link" data-action="open-checkin" data-habit="${h.id}" data-status="${w.todayC.status === 'done' ? 'missed' : 'done'}" data-day="${d.today}">change</button>`
+          : `<button class="btn primary" data-action="open-checkin" data-habit="${h.id}" data-status="done" data-day="${d.today}">${uiIcon('done')}Done</button>
+             <button class="btn" data-action="open-checkin" data-habit="${h.id}" data-status="missed" data-day="${d.today}">${uiIcon('x')}Missed</button>`}
+      </div>
+      ${yesterdayOpen ? `<button class="link small" data-action="open-checkin" data-habit="${h.id}" data-status="done" data-day="${yesterday}">Forgot yesterday? Log it (shows as late)</button>` : ''}
+      <button class="link small quiet" data-action="confirm-archive" data-habit="${h.id}">${shared ? 'End this shared goal' : 'Drop this goal'}</button>`;
+  }
+
+  function partnerActions(h, w) {
+    const status = w.todayC
+      ? `<p class="small ${w.todayC.status}">${statusLine(w.todayC)}${w.todayC.note ? `: “${esc(w.todayC.note)}”` : ''}</p>`
+      : `<p class="small muted">Not checked in today</p>`;
+    return status + nudgeRow(h.user_id, h.id, !w.todayC || w.todayC.status !== 'done');
+  }
+
+  // A shared goal: one card, both of you side by side.
+  function goalCard(g) {
+    const d = state.dash;
+    const people = [...d.members].sort((a, b) => (a.id === d.me ? -1 : b.id === d.me ? 1 : 0));
+    const rows = people
+      .map((m) => {
+        const h = d.habits.find((x) => x.goal_id === g.id && x.user_id === m.id);
+        if (!h) return '';
+        const w = habitWeek(h);
+        const mine = m.id === d.me;
+        return `
+          <div class="duo ${mine ? 'me' : ''}">
+            <div class="duo-head">
+              <span class="duo-name">${mine ? 'You' : esc(m.name)}</span>
+              <span class="duo-count"><strong>${w.done}</strong>/${w.target}</span>
+              ${w.outlook}
+            </div>
+            <div class="dots">${w.dots}</div>
+            ${mine ? myActions(h, w, true) : partnerActions(h, w)}
+          </div>`;
+      })
+      .join('');
+    const anyHabit = d.habits.find((x) => x.goal_id === g.id);
+    const prorated = anyHabit ? habitWeek(anyHabit).prorated : '';
+    return `
+      <article class="card habit goal">
+        <div class="habit-head">
+          <span class="icon-tile">${iconSvg(g.icon)}</span>
+          <div class="habit-title">
+            <h3>${esc(g.title)}</h3>
+            <p class="small muted">Both of you, ${g.target_per_week}x / week</p>
+            ${g.why ? `<p class="why">${esc(g.why)}</p>` : ''}
+          </div>
+        </div>
+        ${prorated ? `<div class="outlook">${prorated}</div>` : ''}
+        ${rows}
+      </article>`;
+  }
+
+  // A side goal: personal, visible to your partner.
+  function habitCard(h, mine) {
+    const w = habitWeek(h);
     return `
       <article class="card habit">
         <div class="habit-head">
@@ -364,11 +471,11 @@
             <h3>${esc(h.title)}</h3>
             ${h.why ? `<p class="why">${esc(h.why)}</p>` : ''}
           </div>
-          <div class="count"><strong>${done}</strong>/${target}<div class="muted small">this week</div></div>
+          <div class="count"><strong>${w.done}</strong>/${w.target}<div class="muted small">this week</div></div>
         </div>
-        <div class="dots">${dots}</div>
-        <div class="outlook">${outlook}${target < h.target_per_week ? `<span class="muted small">First week, so the goal is ${target} instead of ${h.target_per_week}</span>` : ''}</div>
-        ${actions}
+        <div class="dots">${w.dots}</div>
+        <div class="outlook">${w.outlook}${w.prorated}</div>
+        ${mine ? myActions(h, w, false) : partnerActions(h, w)}
       </article>`;
   }
 
@@ -378,12 +485,12 @@
     return `
       <form class="panel" data-form="checkin" data-habit="${h.id}" data-day="${panel.day}">
         <div class="seg" role="radiogroup" aria-label="Status">
-          <label><input type="radio" name="status" value="done" ${missed ? '' : 'checked'} data-action="panel-status"> ✓ Done</label>
-          <label><input type="radio" name="status" value="missed" ${missed ? 'checked' : ''} data-action="panel-status"> ✗ Missed</label>
+          <label><input type="radio" name="status" value="done" ${missed ? '' : 'checked'} data-action="panel-status">${uiIcon('done')}Done</label>
+          <label><input type="radio" name="status" value="missed" ${missed ? 'checked' : ''} data-action="panel-status">${uiIcon('x')}Missed</label>
         </div>
         ${late ? `<p class="small warn-text">Logging for yesterday. Your partner will see it was late.</p>` : ''}
-        <label>${missed ? 'What got in the way? (your partner will see this)' : 'Anything to add? (optional)'}
-          <textarea name="note" rows="2" maxlength="280" ${missed ? 'required' : ''} data-autofocus></textarea>
+        <label for="checkin-note">${missed ? 'What got in the way? (your partner will see this)' : 'Anything to add? (optional)'}
+          <textarea id="checkin-note" name="note" rows="2" maxlength="280" ${missed ? 'required' : ''} data-autofocus></textarea>
         </label>
         <div class="row">
           <button class="btn primary" type="submit">Log it</button>
@@ -397,11 +504,11 @@
     if (panel && panel.type === 'nudge' && panel.userId === userId && panel.habitId === habitId) {
       return `
         <form class="panel" data-form="nudge" data-user="${userId}" data-habit="${habitId ?? ''}" data-kind="${panel.kind}">
-          <label>${panel.kind === 'cheer' ? 'Say something (optional)' : 'Add a message (optional)'}
-            <input name="message" maxlength="280" data-autofocus placeholder="${panel.kind === 'cheer' ? 'Let’s go' : 'You said you would.'}">
+          <label for="nudge-message">${panel.kind === 'cheer' ? 'Say something (optional)' : 'Add a message (optional)'}
+            <input id="nudge-message" name="message" maxlength="280" data-autofocus placeholder="${panel.kind === 'cheer' ? 'Let’s go' : 'You said you would.'}">
           </label>
           <div class="row">
-            <button class="btn primary" type="submit">${panel.kind === 'cheer' ? '👏 Send cheer' : '👉 Send nudge'}</button>
+            <button class="btn primary" type="submit">${panel.kind === 'cheer' ? `${uiIcon('star')}Send cheer` : `${uiIcon('bell')}Send nudge`}</button>
             <button class="btn" type="button" data-action="close-panel">Cancel</button>
           </div>
         </form>`;
@@ -409,17 +516,20 @@
     const attrs = `data-user="${userId}" data-habit="${habitId ?? ''}"`;
     return `
       <div class="row">
-        <button class="btn small" data-action="open-nudge" data-kind="cheer" ${attrs}>👏 Cheer</button>
-        ${showNudge ? `<button class="btn small" data-action="open-nudge" data-kind="nudge" ${attrs}>👉 Nudge</button>` : ''}
+        <button class="btn small" data-action="open-nudge" data-kind="cheer" ${attrs}>${uiIcon('star')}Cheer</button>
+        ${showNudge ? `<button class="btn small" data-action="open-nudge" data-kind="nudge" ${attrs}>${uiIcon('bell')}Nudge</button>` : ''}
       </div>`;
   }
 
-  function addHabitForm(firstHabit) {
-    const open = firstHabit || state.addOpen;
-    const preset = PRESETS.find((p) => p.key === state.preset);
+  // The goal picker, for proposing a shared goal or adding a side goal.
+  function addForm(kind, startOpen, partnerName) {
+    const shared = kind === 'shared';
+    const isOpen = state.addOpen === kind || (startOpen && state.addOpen === null);
+    const current = state.addOpen === kind ? state.preset : null;
+    const preset = PRESETS.find((p) => p.key === current);
     const tiles = PRESETS.map(
       (p) => `
-        <button type="button" class="preset ${p.key === state.preset ? 'on' : ''}" data-action="pick-preset" data-preset="${p.key}" aria-pressed="${p.key === state.preset}">
+        <button type="button" class="preset ${p.key === current ? 'on' : ''}" data-action="pick-preset" data-kind="${kind}" data-preset="${p.key}" aria-pressed="${p.key === current}">
           <span class="icon-tile">${iconSvg(p.icon)}</span>
           <span>${esc(p.label)}</span>
         </button>`
@@ -429,31 +539,31 @@
     if (preset) {
       const fields =
         preset.key === 'custom'
-          ? `<label for="habit-title">Habit<input id="habit-title" name="title" maxlength="80" required placeholder="Edit one video" data-autofocus></label>`
+          ? `<label for="${kind}-title">Goal<input id="${kind}-title" name="title" maxlength="80" required placeholder="${shared ? 'No phone after 10pm' : 'Edit one video'}" data-autofocus></label>`
           : preset.amount
-            ? `<label for="habit-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
-                 <input id="habit-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="${preset.step}" value="${preset.amount}" required data-action="preset-amount">
+            ? `<label for="${kind}-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
+                 <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
                </label>
-               <p class="preview-title">${iconSvg(preset.icon)}<span id="habit-preview">${esc(preset.title(preset.amount))}</span></p>`
+               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.amount))}</span></p>`
             : `<p class="preview-title">${iconSvg(preset.icon)}<span>${esc(preset.title())}</span></p>`;
       form = `
-        <form data-form="habit" data-preset="${preset.key}">
+        <form data-form="habit" data-kind="${kind}" data-preset="${preset.key}">
           ${fields}
-          <label for="habit-why">Why it matters <span class="muted">(your partner sees this)</span>
-            <input id="habit-why" name="why" maxlength="200" placeholder="Content pays for the trip"></label>
-          <label for="habit-days">Days per week
-            <select id="habit-days" name="target_per_week">
+          <label for="${kind}-why">${shared ? 'Why you’re doing it together' : 'Why it matters'} <span class="muted">(optional)</span>
+            <input id="${kind}-why" name="why" maxlength="200" placeholder="${shared ? 'Feel good for the wedding' : 'Content pays for the trip'}"></label>
+          <label for="${kind}-days">Days per week${shared ? ' (for both of you)' : ''}
+            <select id="${kind}-days" name="target_per_week">
               ${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${n === preset.days ? 'selected' : ''}>${n}${n === 7 ? ' (every day)' : ''}</option>`).join('')}
             </select>
           </label>
-          <button class="btn primary" type="submit">Commit to it</button>
+          <button class="btn primary" type="submit">${shared ? `Propose to ${partnerName}` : 'Commit to it'}</button>
         </form>`;
     }
 
     return `
-      <details class="card add" ${open ? 'open' : ''}>
-        <summary>+ Add a habit</summary>
-        <p class="small muted">Pick one to start from, or make your own.</p>
+      <details class="card add ${shared ? 'add-shared' : ''}" data-kind="${kind}" ${isOpen ? 'open' : ''}>
+        <summary>${uiIcon('plus')}${shared ? 'Propose a shared goal' : 'Add a side goal'}</summary>
+        <p class="small muted">${shared ? `${partnerName} has to agree before it starts. Then you're both on the hook.` : 'Pick one to start from, or make your own.'}</p>
         <div class="presets">${tiles}</div>
         ${form}
       </details>`;
@@ -472,6 +582,7 @@
     const whom = e.target_id === d.me ? 'you' : esc(e.target_name);
     const habit = e.habit_title ? `<strong>${esc(e.habit_title)}</strong>` : '';
     const note = e.message ? ` <span class="note">“${esc(e.message)}”</span>` : '';
+    const goal = `<strong>${esc(e.message)}</strong>`;
     const late = e.kind.endsWith('_late') ? ' <span class="pill warn">late, for yesterday</span>' : '';
     let text;
     switch (e.kind) {
@@ -479,8 +590,13 @@
       case 'joined': text = `${who} joined. It's on.`; break;
       case 'done': case 'done_late': text = `${who} did ${habit}.${note}${late}`; break;
       case 'missed': case 'missed_late': text = `${who} missed ${habit}.${note}${late}`; break;
-      case 'habit_added': text = `${who} committed to ${habit} (${esc(e.message)}).`; break;
+      case 'habit_added': text = `${who} added a side goal: ${habit} (${esc(e.message)}).`; break;
       case 'habit_archived': text = `${who} dropped ${habit}.`; break;
+      case 'goal_proposed': text = `${who} proposed a shared goal: ${goal}.`; break;
+      case 'goal_accepted': text = `${who} agreed to ${goal}. You're both on it.`; break;
+      case 'goal_declined': text = `${who} passed on ${goal}.`; break;
+      case 'goal_withdrawn': text = `${who} withdrew ${goal}.`; break;
+      case 'goal_ended': text = `${who} ended the shared goal ${habit}.`; break;
       case 'stakes': text = e.message ? `${who} set the stakes: <span class="note">“${esc(e.message)}”</span>` : `${who} cleared the stakes.`; break;
       case 'nudge': text = `${who} nudged ${whom}${habit ? ` about ${habit}` : ''}.${note}`; break;
       case 'cheer': text = `${who} cheered ${whom}${habit ? ` on ${habit}` : ''}.${note}`; break;
@@ -534,7 +650,7 @@
     async 'join-pact'(f) {
       const { partnership } = await api('POST', '/api/partnerships/join', { code: f.code.value });
       await afterJoinOrCreate(partnership.id);
-      toast("You're in. Add your first habit.");
+      toast("You're in. Agree on your first shared goal.");
     },
     async stakes(f) {
       await api('PATCH', `/api/partnerships/${state.pid}`, { stakes: f.stakes.value });
@@ -548,7 +664,8 @@
       else if (preset.amount) title = presetTitle(preset, f.amount.value);
       else title = preset.title();
       if (!title) throw new Error(`Enter how many ${preset.unit}`);
-      await api('POST', '/api/habits', {
+      const shared = f.dataset.kind === 'shared';
+      await api('POST', shared ? '/api/goals' : '/api/habits', {
         partnership_id: state.pid,
         title,
         icon: preset.icon,
@@ -557,8 +674,8 @@
         today: localToday(),
       });
       state.preset = null;
-      state.addOpen = false;
-      toast('Committed. Your partner can see it.');
+      state.addOpen = null;
+      toast(shared ? 'Proposed. It starts when your partner agrees.' : 'Side goal added. Your partner can see it.');
       await refresh();
     },
     async checkin(f) {
@@ -582,7 +699,7 @@
         message: f.message.value,
       });
       state.panel = null;
-      toast(f.dataset.kind === 'cheer' ? 'Cheer sent 👏' : 'Nudge sent 👉');
+      toast(f.dataset.kind === 'cheer' ? 'Cheer sent' : 'Nudge sent');
       await refresh();
     },
   };
@@ -617,9 +734,16 @@
       render();
     },
     'pick-preset'(el) {
-      state.preset = state.preset === el.dataset.preset ? null : el.dataset.preset;
-      state.addOpen = true;
+      const same = state.addOpen === el.dataset.kind && state.preset === el.dataset.preset;
+      state.addOpen = el.dataset.kind;
+      state.preset = same ? null : el.dataset.preset;
       render();
+    },
+    async respond(el) {
+      const answer = el.dataset.answer;
+      await api('POST', `/api/goals/${el.dataset.goal}/respond`, { answer, today: localToday() });
+      toast(answer === 'accept' ? 'Agreed. You’re both on it.' : answer === 'decline' ? 'Passed.' : 'Withdrawn.');
+      await refresh();
     },
     async 'demo-join'() {
       await api('POST', '/api/demo/partner-join', {});
@@ -685,8 +809,9 @@
   // Live title preview while typing an amount.
   app.addEventListener('input', (ev) => {
     if (ev.target.dataset.action !== 'preset-amount') return;
-    const preset = PRESETS.find((p) => p.key === state.preset);
-    const out = document.getElementById('habit-preview');
+    const form = ev.target.closest('form');
+    const preset = PRESETS.find((p) => p.key === form?.dataset.preset);
+    const out = form?.querySelector('[data-role=preview]');
     if (preset && out) out.textContent = presetTitle(preset, ev.target.value) || '…';
   });
 
@@ -694,9 +819,14 @@
   app.addEventListener(
     'toggle',
     (ev) => {
-      if (ev.target.matches && ev.target.matches('details.add')) {
-        state.addOpen = ev.target.open;
-        if (!ev.target.open) state.preset = null;
+      if (!(ev.target.matches && ev.target.matches('details.add'))) return;
+      const kind = ev.target.dataset.kind;
+      if (ev.target.open && state.addOpen !== kind) {
+        state.addOpen = kind;
+        state.preset = null;
+      } else if (!ev.target.open && state.addOpen === kind) {
+        state.addOpen = 'closed'; // closed on purpose: don't auto-open it again
+        state.preset = null;
       }
     },
     true

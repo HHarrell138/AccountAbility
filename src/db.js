@@ -43,6 +43,24 @@ CREATE TABLE IF NOT EXISTS memberships (
   PRIMARY KEY (partnership_id, user_id)
 );
 
+-- A shared goal: one person proposes, the other agrees. Once active, every
+-- member gets their own habit row pointing at it (habits.goal_id), so
+-- check-ins and scoring work exactly like personal habits.
+CREATE TABLE IF NOT EXISTS goals (
+  id               INTEGER PRIMARY KEY,
+  partnership_id   INTEGER NOT NULL REFERENCES partnerships(id) ON DELETE CASCADE,
+  proposed_by      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title            TEXT NOT NULL,
+  why              TEXT NOT NULL DEFAULT '',
+  icon             TEXT NOT NULL DEFAULT 'check',
+  target_per_week  INTEGER NOT NULL CHECK (target_per_week BETWEEN 1 AND 7),
+  status           TEXT NOT NULL DEFAULT 'proposed'
+                   CHECK (status IN ('proposed', 'active', 'declined', 'withdrawn', 'ended')),
+  created_at       TEXT NOT NULL DEFAULT ${NOW},
+  decided_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS goals_by_partnership ON goals(partnership_id);
+
 CREATE TABLE IF NOT EXISTS habits (
   id               INTEGER PRIMARY KEY,
   partnership_id   INTEGER NOT NULL REFERENCES partnerships(id) ON DELETE CASCADE,
@@ -51,6 +69,7 @@ CREATE TABLE IF NOT EXISTS habits (
   why              TEXT NOT NULL DEFAULT '',
   target_per_week  INTEGER NOT NULL CHECK (target_per_week BETWEEN 1 AND 7),
   icon             TEXT NOT NULL DEFAULT 'check',
+  goal_id          INTEGER REFERENCES goals(id) ON DELETE CASCADE,
   created_day      TEXT NOT NULL,
   archived_day     TEXT,
   created_at       TEXT NOT NULL DEFAULT ${NOW}
@@ -89,6 +108,7 @@ CREATE INDEX IF NOT EXISTS events_by_partnership ON events(partnership_id, id);
 function migrate(db) {
   const habitCols = db.prepare('PRAGMA table_info(habits)').all().map((c) => c.name);
   if (!habitCols.includes('icon')) db.exec("ALTER TABLE habits ADD COLUMN icon TEXT NOT NULL DEFAULT 'check'");
+  if (!habitCols.includes('goal_id')) db.exec('ALTER TABLE habits ADD COLUMN goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE');
 }
 
 function openDb(file = ':memory:') {

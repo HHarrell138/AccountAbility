@@ -293,6 +293,8 @@ function createApp({ dbFile = ':memory:' } = {}) {
        WHERE m.partnership_id = ? ORDER BY m.joined_at, u.id`
     ).all(p.id);
     const habits = q('SELECT * FROM habits WHERE partnership_id = ? ORDER BY id').all(p.id);
+    const shared = habits.filter((h) => h.goal_id);
+    const goals = q(`SELECT * FROM goals WHERE partnership_id = ? AND status IN ('proposed', 'active') ORDER BY id`).all(p.id);
     const checkins = q(
       `SELECT c.id, c.habit_id, c.user_id, c.day, c.status, c.note, c.late
        FROM checkins c JOIN habits h ON h.id = c.habit_id WHERE h.partnership_id = ?`
@@ -328,21 +330,31 @@ function createApp({ dbFile = ':memory:' } = {}) {
       members,
       habits: habits.filter((h) => !h.archived_day || h.archived_day > thisWeek),
       checkins: checkins.filter((c) => c.day >= recentFrom),
+      goals,
       week: L.scoreWeek(ids, habits, checkins, thisWeek),
-      lastWeek: L.scoreWeek(ids, habits, checkins, recentFrom),
-      streak: ids.length >= 2 ? L.pairStreak(ids, habits, checkins, today, p.created_day) : { weeks: 0, currentWeekMet: false },
+      // Shared goals are what you're compared on, and all the pair streak counts.
+      sharedWeek: L.scoreWeek(ids, shared, checkins, thisWeek),
+      sharedLastWeek: L.scoreWeek(ids, shared, checkins, recentFrom),
+      streak: ids.length >= 2 ? L.pairStreak(ids, shared, checkins, today, p.created_day) : { weeks: 0, currentWeekMet: false },
       events,
       last_seen_event_id,
     };
   });
 
-  route('POST', '/api/habits', ({ user, body }) => {
-    const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
-    const title = str(body.title, 'Habit', { max: 80 });
-    const why = str(body.why, 'Why', { max: 200, required: false });
-    const target = int(body.target_per_week, 'Days per week', 1, 7);
+  function habitFields(body) {
     const icon = body.icon === undefined ? 'check' : body.icon;
     if (!HABIT_ICONS.includes(icon)) fail(400, 'Unknown habit icon');
+    return {
+      title: str(body.title, 'Goal', { max: 80 }),
+      why: str(body.why, 'Why', { max: 200, required: false }),
+      target: int(body.target_per_week, 'Days per week', 1, 7),
+      icon,
+    };
+  }
+
+  route('POST', '/api/habits', ({ user, body }) => {
+    const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
+    const { title, why, target, icon } = habitFields(body);
     const today = clientToday(body.today);
     const { active } = q('SELECT COUNT(*) AS active FROM habits WHERE partnership_id = ? AND user_id = ? AND archived_day IS NULL').get(p.id, user.id);
     if (active >= 10) fail(400, 'Ten habits is plenty. Archive one first.');
@@ -358,13 +370,69 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const h = ownHabit(params.id, user.id);
     if (body.archived === true && !h.archived_day) {
       const today = clientToday(body.today);
-      q('UPDATE habits SET archived_day = ? WHERE id = ?').run(today, h.id);
-      addEvent({ partnership_id: h.partnership_id, actor_id: user.id, habit_id: h.id, kind: 'habit_archived' });
+      tx(() => {
+        if (h.goal_id) {
+          // A shared goal ends for both of you, and everyone sees who ended it.
+          q('UPDATE habits SET archived_day = ? WHERE goal_id = ? AND archived_day IS NULL').run(today, h.goal_id);
+          q(`UPDATE goals SET status = 'ended', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(h.goal_id);
+          addEvent({ partnership_id: h.partnership_id, actor_id: user.id, habit_id: h.id, kind: 'goal_ended' });
+        } else {
+          q('UPDATE habits SET archived_day = ? WHERE id = ?').run(today, h.id);
+          addEvent({ partnership_id: h.partnership_id, actor_id: user.id, habit_id: h.id, kind: 'habit_archived' });
+        }
+      });
     }
     if (body.why !== undefined) {
       q('UPDATE habits SET why = ? WHERE id = ?').run(str(body.why, 'Why', { max: 200, required: false }), h.id);
     }
     return { ok: true };
+  });
+
+  route('POST', '/api/goals', ({ user, body }) => {
+    const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
+    const { title, why, target, icon } = habitFields(body);
+    const { open } = q(`SELECT COUNT(*) AS open FROM goals WHERE partnership_id = ? AND status IN ('proposed', 'active')`).get(p.id);
+    if (open >= 10) fail(400, 'Ten shared goals is plenty. End one first.');
+    const goal = q(
+      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week) VALUES (?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, icon, target);
+    addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'goal_proposed', message: `${title} (${target}x / week)` });
+    return { goal };
+  });
+
+  // Accept, decline, or (for the person who proposed it) withdraw.
+  route('POST', '/api/goals/:id/respond', ({ user, params, body }) => {
+    const goal = q('SELECT * FROM goals WHERE id = ?').get(params.id);
+    if (!goal) fail(404, 'Goal not found');
+    requireMember(goal.partnership_id, user.id);
+    if (goal.status !== 'proposed') fail(409, 'That goal was already decided');
+    const answer = body.answer;
+    const label = `${goal.title} (${goal.target_per_week}x / week)`;
+    return tx(() => {
+      if (answer === 'withdraw') {
+        if (goal.proposed_by !== user.id) fail(403, 'Only the person who proposed it can withdraw it');
+        q(`UPDATE goals SET status = 'withdrawn', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(goal.id);
+        addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, kind: 'goal_withdrawn', message: label });
+        return { ok: true };
+      }
+      if (goal.proposed_by === user.id) fail(403, 'Your partner has to answer this one');
+      if (answer === 'decline') {
+        q(`UPDATE goals SET status = 'declined', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(goal.id);
+        addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_declined', message: label });
+        return { ok: true };
+      }
+      if (answer !== 'accept') fail(400, 'answer must be accept, decline or withdraw');
+      const today = clientToday(body.today);
+      q(`UPDATE goals SET status = 'active', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(goal.id);
+      for (const uid of memberIds(goal.partnership_id)) {
+        q(
+          `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, goal_id, created_day)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(goal.partnership_id, uid, goal.title, goal.why, goal.target_per_week, goal.icon, goal.id, today);
+      }
+      addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
+      return { ok: true };
+    });
   });
 
   route('POST', '/api/checkins', ({ user, body }) => {
