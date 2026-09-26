@@ -12,6 +12,8 @@ const SESSION_COOKIE = 'aa_session';
 const SESSION_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 const MAX_BODY = 16 * 1024;
 const NUDGES_PER_DAY = 10;
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const MIME = {
@@ -110,6 +112,27 @@ function createApp({ dbFile = ':memory:' } = {}) {
     }
   }
 
+  // Failed logins per client IP + username, so nobody can guess passwords all day.
+  const loginFailures = new Map();
+  const loginKey = (req, username) =>
+    `${(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim()}|${username}`;
+  function loginBlocked(key) {
+    const f = loginFailures.get(key);
+    if (!f) return false;
+    if (Date.now() - f.first > LOGIN_WINDOW_MS) {
+      loginFailures.delete(key);
+      return false;
+    }
+    return f.count >= LOGIN_MAX_FAILURES;
+  }
+  function recordLoginFailure(key) {
+    const f = loginFailures.get(key);
+    if (!f || Date.now() - f.first > LOGIN_WINDOW_MS) loginFailures.set(key, { first: Date.now(), count: 1 });
+    else f.count++;
+  }
+
+  q('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now());
+
   function startSession(req, res, userId) {
     const token = crypto.randomBytes(32).toString('hex');
     q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, userId, Date.now() + SESSION_TTL_MS);
@@ -178,8 +201,14 @@ function createApp({ dbFile = ':memory:' } = {}) {
   route('POST', '/api/login', ({ body, req, res }) => {
     const username = str(body.username, 'Username').toLowerCase();
     const password = str(body.password, 'Password');
+    const key = loginKey(req, username);
+    if (loginBlocked(key)) fail(429, 'Too many tries. Wait 15 minutes and try again.');
     const u = q('SELECT * FROM users WHERE username = ?').get(username);
-    if (!u || !verifyPassword(password, u.pass_salt, u.pass_hash)) fail(401, 'Wrong username or password');
+    if (!u || !verifyPassword(password, u.pass_salt, u.pass_hash)) {
+      recordLoginFailure(key);
+      fail(401, 'Wrong username or password');
+    }
+    loginFailures.delete(key);
     startSession(req, res, u.id);
     return { user: { id: u.id, name: u.name, username: u.username } };
   }, { auth: false });
@@ -188,6 +217,11 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     if (token) q('DELETE FROM sessions WHERE token = ?').run(token);
     res.setHeader('Set-Cookie', sessionCookie(req, '', 0));
+    return { ok: true };
+  }, { auth: false });
+
+  route('GET', '/api/health', () => {
+    q('SELECT 1').get();
     return { ok: true };
   }, { auth: false });
 
@@ -437,6 +471,12 @@ function createApp({ dbFile = ':memory:' } = {}) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'same-origin');
+    if (req.headers['x-forwarded-proto'] === 'https') {
+      res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+    }
     try {
       if (!url.pathname.startsWith('/api/')) {
         if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Method not allowed' });
@@ -477,7 +517,16 @@ if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
   const dbFile = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'accountability.db');
   if (dbFile !== ':memory:') fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-  createApp({ dbFile }).listen(port, () => {
-    console.log(`AccountAbility running at http://localhost:${port}`);
+  const server = createApp({ dbFile });
+  server.listen(port, () => {
+    console.log(`AccountAbility running at http://localhost:${port} (db: ${dbFile})`);
   });
+  // Hosts send SIGTERM on every deploy; close the database cleanly.
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => {
+      server.close(() => process.exit(0));
+      server.closeAllConnections();
+      setTimeout(() => process.exit(0), 5000).unref();
+    });
+  }
 }

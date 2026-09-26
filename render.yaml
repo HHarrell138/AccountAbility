@@ -1,0 +1,15 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: accountability
+    runtime: docker
+    plan: starter        # needed for a persistent disk; free instances wipe the database
+    region: ohio
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_FILE
+        value: /var/data/accountability.db
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1

@@ -31,13 +31,18 @@ On a phone, open the URL and use **Add to Home Screen**. It installs like an app
 
 Environment variables: `PORT` (default 3000) and `DB_FILE` (SQLite path, or `:memory:`).
 
-### Put it online so your partner can use it
+### Deploy (Render, about $7.25/mo)
 
-Any host that runs Node and has a persistent disk works (Render, Railway, Fly.io, or a $5 VPS):
+`render.yaml` in the repo defines everything: a Docker web service, a 1 GB persistent disk for the database, and a health check.
 
-- Start command: `npm start`
-- Mount a persistent volume and set `DB_FILE=/data/accountability.db`
-- Serve over HTTPS (the session cookie becomes `Secure` behind a proxy that sets `x-forwarded-proto`)
+1. Sign up at [render.com](https://render.com) with GitHub.
+2. **New → Blueprint**, pick this repo and branch, then click **Apply**.
+3. Wait for the first deploy to go green (a few minutes), then open the `onrender.com` URL.
+
+Every push to that branch redeploys automatically, and the database lives on the disk, so it survives deploys.
+Paid instances are needed because free ones have no persistent disk and would wipe everyone's data on each restart.
+
+The `Dockerfile` also runs anywhere else (Railway, Fly.io, a VPS). Just mount a volume at `/var/data`.
 
 ## How it's built
 

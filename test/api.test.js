@@ -111,3 +111,23 @@ test('rejects non-JSON writes and bogus dates', async (t) => {
   assert.equal((await fetch(base + '/package.json')).status, 404);
   assert.equal((await fetch(base + '/%2e%2e/package.json')).status, 404);
 });
+
+test('health check and login lockout', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const health = await fetch(base + '/api/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
+
+  const c = client(base);
+  await c('POST', '/api/signup', { name: 'A', username: 'victim', password: 'password123' });
+  const attacker = client(base);
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await attacker('POST', '/api/login', { username: 'victim', password: 'wrong-guess' })).status, 401);
+  }
+  // Locked out, even with the right password, until the window passes.
+  assert.equal((await attacker('POST', '/api/login', { username: 'victim', password: 'password123' })).status, 429);
+});
