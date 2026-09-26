@@ -51,6 +51,10 @@ test('two people make a pact and hold each other accountable', async (t) => {
 
   const habit = (await hank('POST', '/api/habits', { partnership_id: pid, title: 'Edit a video', why: 'Content pays for travel', target_per_week: 5, today })).data.habit;
   assert.equal(habit.target_per_week, 5);
+  assert.equal(habit.icon, 'check');
+  const water = await hank('POST', '/api/habits', { partnership_id: pid, title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, today });
+  assert.equal(water.data.habit.icon, 'water');
+  assert.equal((await hank('POST', '/api/habits', { partnership_id: pid, title: 'X', icon: '<script>', target_per_week: 7, today })).status, 400);
 
   // Jake can't check in on Hank's habit.
   assert.equal((await jake('POST', '/api/checkins', { habit_id: habit.id, status: 'done', today })).status, 404);
@@ -130,4 +134,21 @@ test('health check and login lockout', async (t) => {
   }
   // Locked out, even with the right password, until the window passes.
   assert.equal((await attacker('POST', '/api/login', { username: 'victim', password: 'password123' })).status, 429);
+});
+
+test('older databases get the habit icon column added', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { DatabaseSync } = require('node:sqlite');
+  const { openDb } = require('../src/db');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aa-')), 'old.db');
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE habits (id INTEGER PRIMARY KEY, partnership_id INTEGER, user_id INTEGER, title TEXT,
+    why TEXT, target_per_week INTEGER, created_day TEXT, archived_day TEXT, created_at TEXT)`);
+  old.exec(`INSERT INTO habits (title, target_per_week) VALUES ('Old habit', 3)`);
+  old.close();
+  const db = openDb(file);
+  assert.equal(db.prepare('SELECT icon FROM habits').get().icon, 'check');
+  db.close();
 });

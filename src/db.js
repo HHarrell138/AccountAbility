@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS habits (
   title            TEXT NOT NULL,
   why              TEXT NOT NULL DEFAULT '',
   target_per_week  INTEGER NOT NULL CHECK (target_per_week BETWEEN 1 AND 7),
+  icon             TEXT NOT NULL DEFAULT 'check',
   created_day      TEXT NOT NULL,
   archived_day     TEXT,
   created_at       TEXT NOT NULL DEFAULT ${NOW}
@@ -84,10 +85,17 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_by_partnership ON events(partnership_id, id);
 `;
 
+// Additive migrations for databases created by older versions.
+function migrate(db) {
+  const habitCols = db.prepare('PRAGMA table_info(habits)').all().map((c) => c.name);
+  if (!habitCols.includes('icon')) db.exec("ALTER TABLE habits ADD COLUMN icon TEXT NOT NULL DEFAULT 'check'");
+}
+
 function openDb(file = ':memory:') {
   const db = new DatabaseSync(file);
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

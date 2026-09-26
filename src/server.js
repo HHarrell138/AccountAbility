@@ -14,6 +14,8 @@ const MAX_BODY = 16 * 1024;
 const NUDGES_PER_DAY = 10;
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+// Must match the icon keys in public/app.js.
+const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep'];
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const MIME = {
@@ -339,13 +341,15 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const title = str(body.title, 'Habit', { max: 80 });
     const why = str(body.why, 'Why', { max: 200, required: false });
     const target = int(body.target_per_week, 'Days per week', 1, 7);
+    const icon = body.icon === undefined ? 'check' : body.icon;
+    if (!HABIT_ICONS.includes(icon)) fail(400, 'Unknown habit icon');
     const today = clientToday(body.today);
     const { active } = q('SELECT COUNT(*) AS active FROM habits WHERE partnership_id = ? AND user_id = ? AND archived_day IS NULL').get(p.id, user.id);
     if (active >= 10) fail(400, 'Ten habits is plenty. Archive one first.');
     const habit = q(
-      `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, created_day)
-       VALUES (?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, target, today);
+      `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, created_day)
+       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, target, icon, today);
     addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: `${target}x / week` });
     return { habit };
   });

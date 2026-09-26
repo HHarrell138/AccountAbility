@@ -5,6 +5,35 @@
   const toastEl = document.getElementById('toast');
   const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
+  // Habit icons: 24x24 line drawings in currentColor. Keys must match
+  // HABIT_ICONS in src/server.js.
+  const ICONS = {
+    check: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/>',
+    water: '<path d="M9 3h6v2.5l2 3V19a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V8.5l2-3z"/><path d="M17 10.5h1.2a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8H17"/><path d="M7 13c1.7-1 3.3 1 5 0s3.3 1 5 0"/>',
+    protein: '<circle cx="14.5" cy="9.5" r="5.5"/><path d="M10.6 13.4 6.2 17.8"/><circle cx="4.6" cy="17.6" r="1.6"/><circle cx="6.4" cy="19.4" r="1.6"/>',
+    calories: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.2 1-3.7 2.2-4.8.3 1.6 1 2.6 2.3 3.1-.7-3.3.2-6 .5-8.3z"/>',
+    'calorie-cap': '<path d="M5 4h14"/><path d="M12 8c.8 2.8 4 4.4 4 8a4 4 0 0 1-8 0c0-1.8.8-3 1.8-3.8.2 1.3.8 2.1 1.8 2.5-.5-2.6.2-4.8.4-6.7z"/>',
+    workout: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>',
+    steps: '<path d="M3 16V7.5h3.5L8 10l3-1.2 2 3 5.4 1.4A3.4 3.4 0 0 1 21 16.5V17H3z"/><path d="M3 20h18"/><path d="M9.3 11.6l1.2 1.2M11.8 10.8l1.2 1.2"/>',
+    read: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
+    sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  };
+  const iconSvg = (key) =>
+    `<svg class="hicon i-${esc(key)}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[key] || ICONS.check}</svg>`;
+
+  // Presets fill in the add-habit form. {n} is the amount the person picks.
+  const PRESETS = [
+    { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, step: 0.25, min: 0.25, unit: 'gallons', days: 7 },
+    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, step: 5, min: 5, unit: 'grams', days: 7 },
+    { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, step: 50, min: 500, unit: 'calories', days: 7 },
+    { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, step: 50, min: 500, unit: 'calories', days: 6 },
+    { key: 'workout', icon: 'workout', label: 'Workout', title: () => 'Work out', days: 4 },
+    { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, step: 500, min: 500, unit: 'steps', days: 5 },
+    { key: 'read', icon: 'read', label: 'Read', title: (n) => `Read ${n} pages`, amount: 20, step: 5, min: 1, unit: 'pages', days: 5 },
+    { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, step: 0.5, min: 4, unit: 'hours', days: 5 },
+    { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
+  ];
+
   const state = {
     user: null,
     partnerships: [],
@@ -12,6 +41,8 @@
     dash: null,
     authMode: 'signup',
     panel: null, // { type: 'checkin', habitId, status, day } | { type: 'nudge', habitId, userId }
+    addOpen: false, // add-habit section expanded
+    preset: null, // selected preset key in the add-habit form
   };
 
   // ---------- utils ----------
@@ -221,6 +252,7 @@
         <p>Send them this code. They sign up, tap <em>Join with a code</em>, and you're locked in.</p>
         <div class="code">${esc(code)}</div>
         <button class="btn" data-action="share-code" data-code="${esc(code)}">Share invite</button>
+        ${window.AA_DEMO ? `<button class="btn primary" data-action="demo-join">Preview: have your partner join</button>` : ''}
       </section>`;
   }
 
@@ -327,14 +359,15 @@
     return `
       <article class="card habit">
         <div class="habit-head">
-          <div>
+          <span class="icon-tile">${iconSvg(h.icon)}</span>
+          <div class="habit-title">
             <h3>${esc(h.title)}</h3>
             ${h.why ? `<p class="why">${esc(h.why)}</p>` : ''}
           </div>
-          <div class="count"><strong>${done}</strong>/${target}<span class="muted small"> this week</span>${target < h.target_per_week ? `<div class="muted small">new: prorated from ${h.target_per_week}</div>` : ''}</div>
+          <div class="count"><strong>${done}</strong>/${target}<div class="muted small">this week</div></div>
         </div>
         <div class="dots">${dots}</div>
-        <div class="outlook">${outlook}</div>
+        <div class="outlook">${outlook}${target < h.target_per_week ? `<span class="muted small">First week, so the goal is ${target} instead of ${h.target_per_week}</span>` : ''}</div>
         ${actions}
       </article>`;
   }
@@ -381,22 +414,56 @@
       </div>`;
   }
 
-  function addHabitForm(open) {
-    return `
-      <details class="card add" ${open ? 'open' : ''}>
-        <summary>+ Add a habit</summary>
-        <form data-form="habit">
-          <label>Habit<input name="title" maxlength="80" required placeholder="Edit one video"></label>
-          <label>Why it matters <span class="muted">(your partner sees this)</span>
-            <input name="why" maxlength="200" placeholder="Content pays for the trip"></label>
-          <label>Days per week
-            <select name="target_per_week">
-              ${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${n === 5 ? 'selected' : ''}>${n}${n === 7 ? ' (every day)' : ''}</option>`).join('')}
+  function addHabitForm(firstHabit) {
+    const open = firstHabit || state.addOpen;
+    const preset = PRESETS.find((p) => p.key === state.preset);
+    const tiles = PRESETS.map(
+      (p) => `
+        <button type="button" class="preset ${p.key === state.preset ? 'on' : ''}" data-action="pick-preset" data-preset="${p.key}" aria-pressed="${p.key === state.preset}">
+          <span class="icon-tile">${iconSvg(p.icon)}</span>
+          <span>${esc(p.label)}</span>
+        </button>`
+    ).join('');
+
+    let form = '';
+    if (preset) {
+      const fields =
+        preset.key === 'custom'
+          ? `<label for="habit-title">Habit<input id="habit-title" name="title" maxlength="80" required placeholder="Edit one video" data-autofocus></label>`
+          : preset.amount
+            ? `<label for="habit-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
+                 <input id="habit-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="${preset.step}" value="${preset.amount}" required data-action="preset-amount">
+               </label>
+               <p class="preview-title">${iconSvg(preset.icon)}<span id="habit-preview">${esc(preset.title(preset.amount))}</span></p>`
+            : `<p class="preview-title">${iconSvg(preset.icon)}<span>${esc(preset.title())}</span></p>`;
+      form = `
+        <form data-form="habit" data-preset="${preset.key}">
+          ${fields}
+          <label for="habit-why">Why it matters <span class="muted">(your partner sees this)</span>
+            <input id="habit-why" name="why" maxlength="200" placeholder="Content pays for the trip"></label>
+          <label for="habit-days">Days per week
+            <select id="habit-days" name="target_per_week">
+              ${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${n === preset.days ? 'selected' : ''}>${n}${n === 7 ? ' (every day)' : ''}</option>`).join('')}
             </select>
           </label>
           <button class="btn primary" type="submit">Commit to it</button>
-        </form>
+        </form>`;
+    }
+
+    return `
+      <details class="card add" ${open ? 'open' : ''}>
+        <summary>+ Add a habit</summary>
+        <p class="small muted">Pick one to start from, or make your own.</p>
+        <div class="presets">${tiles}</div>
+        ${form}
       </details>`;
+  }
+
+  // Title for a preset + amount, with the number tidied (1.50 -> 1.5).
+  function presetTitle(preset, raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return preset.title(Math.round(n * 100) / 100);
   }
 
   function feedItem(e) {
@@ -475,13 +542,23 @@
       await refresh();
     },
     async habit(f) {
+      const preset = PRESETS.find((p) => p.key === f.dataset.preset);
+      let title;
+      if (preset.key === 'custom') title = f.title.value;
+      else if (preset.amount) title = presetTitle(preset, f.amount.value);
+      else title = preset.title();
+      if (!title) throw new Error(`Enter how many ${preset.unit}`);
       await api('POST', '/api/habits', {
         partnership_id: state.pid,
-        title: f.title.value,
+        title,
+        icon: preset.icon,
         why: f.why.value,
         target_per_week: Number(f.target_per_week.value),
         today: localToday(),
       });
+      state.preset = null;
+      state.addOpen = false;
+      toast('Committed. Your partner can see it.');
       await refresh();
     },
     async checkin(f) {
@@ -539,6 +616,16 @@
       state.panel = null;
       render();
     },
+    'pick-preset'(el) {
+      state.preset = state.preset === el.dataset.preset ? null : el.dataset.preset;
+      state.addOpen = true;
+      render();
+    },
+    async 'demo-join'() {
+      await api('POST', '/api/demo/partner-join', {});
+      toast('Your partner joined. It’s on.');
+      await refresh();
+    },
     'confirm-archive'(el) {
       state.panel = { type: 'archive', habitId: Number(el.dataset.habit) };
       render();
@@ -595,6 +682,26 @@
     guarded(() => actions[el.dataset.action](el));
   });
 
+  // Live title preview while typing an amount.
+  app.addEventListener('input', (ev) => {
+    if (ev.target.dataset.action !== 'preset-amount') return;
+    const preset = PRESETS.find((p) => p.key === state.preset);
+    const out = document.getElementById('habit-preview');
+    if (preset && out) out.textContent = presetTitle(preset, ev.target.value) || '…';
+  });
+
+  // Remember whether the add-habit section is open across re-renders.
+  app.addEventListener(
+    'toggle',
+    (ev) => {
+      if (ev.target.matches && ev.target.matches('details.add')) {
+        state.addOpen = ev.target.open;
+        if (!ev.target.open) state.preset = null;
+      }
+    },
+    true
+  );
+
   app.addEventListener('change', (ev) => {
     const el = ev.target;
     if (el.dataset.action === 'switch-pact') {
@@ -609,7 +716,7 @@
 
   // Keep the partner's side fresh without clobbering anything you're typing.
   setInterval(() => {
-    if (document.hidden || !state.pid || state.panel) return;
+    if (document.hidden || !state.pid || state.panel || state.preset) return;
     const a = document.activeElement;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
     if (app.querySelector('details.add[open] input:not(:placeholder-shown)')) return;
