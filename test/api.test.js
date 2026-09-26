@@ -209,3 +209,25 @@ test('shared goals: propose, agree, compare, and end together', async (t) => {
   assert.equal(dash.events[0].kind, 'goal_ended');
   assert.equal((await a('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today })).status, 400);
 });
+
+test('one-tap done can be undone, a miss cannot', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const c = client(base);
+  await c('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  const { id: pid } = (await c('POST', '/api/partnerships', { today })).data.partnership;
+  const h = (await c('POST', '/api/habits', { partnership_id: pid, title: 'Read', target_per_week: 3, today })).data.habit;
+
+  await c('POST', '/api/checkins', { habit_id: h.id, status: 'done', today });
+  assert.equal((await c('POST', '/api/checkins/undo', { habit_id: h.id, today })).status, 200);
+  let dash = (await c('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.checkins.length, 0);
+  assert.ok(!dash.events.some((e) => e.kind === 'done'));
+  assert.equal((await c('POST', '/api/checkins/undo', { habit_id: h.id, today })).status, 404);
+
+  await c('POST', '/api/checkins', { habit_id: h.id, status: 'missed', note: 'Travel day', today });
+  assert.equal((await c('POST', '/api/checkins/undo', { habit_id: h.id, today })).status, 400);
+});

@@ -1,6 +1,6 @@
 # AccountAbility
 
-**Habits you keep because someone's counting on you.**
+**Goals you keep because someone's counting on you.**
 
 Most habit trackers are either solo (easy to lie to yourself) or social (performing for strangers). AccountAbility is neither: it's a closed pact between **you and one person** (a friend, spouse, or training partner) built so that skipping costs something.
 
@@ -11,12 +11,14 @@ Most habit trackers are either solo (easy to lie to yourself) or social (perform
 | **Shared goals come first** | You and your partner agree on goals together. One proposes, the other has to say yes, and then you're compared side by side on them. |
 | **Side goals** | Personal goals your partner can see and nudge you on, but they don't count toward the streak. |
 | **1-on-1 pacts** | No followers, no public feed. Just the person whose opinion you actually care about. |
-| **Misses need a reason** | You can't log a miss without saying what got in the way, and your partner sees it. |
+| **One tap to log** | Tap the check and it's logged. Tap again (or Undo) if it was an accident. |
+| **Misses need a reason** | You can't log a miss without saying what got in the way, and your partner sees it. A logged miss can't be undone. |
 | **Shared pair streak** | The streak only grows in weeks where *both* of you hit *every shared goal*. If you slack, you break it for them too. |
 | **No rewriting history** | You can log today or yesterday, and yesterday is marked *late*. Nothing older. |
 | **Quitting is visible** | Dropping a goal shows up in the feed, and that week still counts. Ending a shared goal ends it for both of you. |
 | **Stakes** | "Loser buys coffee" is pinned at the top where you both see it. |
 | **Nudge / Cheer** | One tap to call your partner out or hype them up. |
+| **Your color, their color** | Each of you gets a color, so every shared goal reads as you vs. them at a glance. Three palettes: Sunset, Jungle, Ink. |
 
 Weekly targets ("4x per week") beat daily all-or-nothing streaks: they survive a travel day or a sick day but still keep you on the hook. A habit created mid-week gets a prorated target for that first week, so a new habit never starts as an automatic fail.
 

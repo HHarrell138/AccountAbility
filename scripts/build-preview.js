@@ -16,7 +16,10 @@ const icon = 'data:image/svg+xml;base64,' + Buffer.from(read('public/icon.svg'))
 const app = read('public/app.js').replaceAll('"/icon.svg"', `"${icon}"`);
 
 const html = `<title>AccountAbility</title>
-<meta name="description" content="Habits you keep because someone's counting on you.">
+<meta name="description" content="Goals you keep because someone's counting on you.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap">
 <style>
 ${read('public/styles.css')}
 .preview-bar {
@@ -24,7 +27,7 @@ ${read('public/styles.css')}
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  max-width: 560px;
+  max-width: 540px;
   margin: 0 auto;
   padding: 10px 16px 0;
   font-size: 0.8rem;

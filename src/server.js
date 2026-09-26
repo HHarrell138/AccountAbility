@@ -471,6 +471,19 @@ function createApp({ dbFile = ':memory:' } = {}) {
     });
   });
 
+  // Undo an accidental Done. Only Done: a logged miss (and its reason) stays.
+  route('POST', '/api/checkins/undo', ({ user, body }) => {
+    const h = ownHabit(int(body.habit_id, 'habit_id', 1, Number.MAX_SAFE_INTEGER), user.id);
+    const today = clientToday(body.today);
+    const day = body.day === undefined ? today : body.day;
+    if (day !== today && day !== L.addDays(today, -1)) fail(400, 'You can only undo today or yesterday');
+    const c = q('SELECT * FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day);
+    if (!c) fail(404, 'Nothing to undo');
+    if (c.status !== 'done') fail(400, 'A logged miss stays. Log Done instead if you made it up.');
+    q('DELETE FROM checkins WHERE id = ?').run(c.id); // its feed entry goes with it
+    return { ok: true };
+  });
+
   route('POST', '/api/partnerships/:id/nudges', ({ user, params, body }) => {
     const p = requireMember(params.id, user.id);
     const kind = body.kind;

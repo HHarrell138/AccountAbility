@@ -288,6 +288,17 @@
       }
       return { checkin: c };
     }],
+    ['POST', /^\/api\/checkins\/undo$/, (b) => {
+      const h = db.habits.find((x) => x.id === Number(b.habit_id) && x.user_id === ME);
+      if (!h) fail(404, 'Habit not found');
+      const day = b.day || b.today;
+      const c = db.checkins.find((x) => x.habit_id === h.id && x.day === day);
+      if (!c) fail(404, 'Nothing to undo');
+      if (c.status !== 'done') fail(400, 'A logged miss stays. Log Done instead if you made it up.');
+      db.checkins = db.checkins.filter((x) => x !== c);
+      db.events = db.events.filter((e) => e.checkin_id !== c.id);
+      return { ok: true };
+    }],
     ['POST', /^\/api\/partnerships\/(\d+)\/nudges$/, (b, q, m) => {
       requirePact(m[1]);
       if (Number(b.to_user_id) !== JAKE) fail(400, "You can't nudge yourself. That's what the app is for.");
