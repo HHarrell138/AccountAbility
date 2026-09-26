@@ -61,6 +61,8 @@
   }
 
   async function api(method, path, body) {
+    // Preview build: an in-browser stand-in for the server (see public/demo.js).
+    if (window.AA_DEMO) return window.AA_DEMO(method, path, body);
     const res = await fetch(path, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : {},
@@ -293,6 +295,15 @@
     if (mine) {
       if (panel && panel.type === 'checkin' && panel.habitId === h.id) {
         actions = checkinPanel(h, panel);
+      } else if (panel && panel.type === 'archive' && panel.habitId === h.id) {
+        actions = `
+          <div class="panel">
+            <p class="small"><strong>Drop this habit?</strong> Your partner will see that you dropped it, and this week still counts.</p>
+            <div class="row">
+              <button class="btn danger" data-action="archive" data-habit="${h.id}">Drop it</button>
+              <button class="btn" data-action="close-panel">Keep it</button>
+            </div>
+          </div>`;
       } else {
         const yesterdayOpen = !yesterdayC && yesterday >= h.created_day;
         actions = `
@@ -304,7 +315,7 @@
                  <button class="btn" data-action="open-checkin" data-habit="${h.id}" data-status="missed" data-day="${d.today}">✗ Missed</button>`}
           </div>
           ${yesterdayOpen ? `<button class="link small" data-action="open-checkin" data-habit="${h.id}" data-status="done" data-day="${yesterday}">Forgot yesterday? Log it (shows as late)</button>` : ''}
-          <button class="link small quiet" data-action="archive" data-habit="${h.id}">Drop this habit</button>`;
+          <button class="link small quiet" data-action="confirm-archive" data-habit="${h.id}">Drop this habit</button>`;
       }
     } else {
       const status = todayC
@@ -528,8 +539,12 @@
       state.panel = null;
       render();
     },
+    'confirm-archive'(el) {
+      state.panel = { type: 'archive', habitId: Number(el.dataset.habit) };
+      render();
+    },
     async archive(el) {
-      if (!confirm('Drop this habit? Your partner will see that you dropped it, and this week still counts.')) return;
+      state.panel = null;
       await api('PATCH', `/api/habits/${el.dataset.habit}`, { archived: true, today: localToday() });
       await refresh();
     },
@@ -539,10 +554,10 @@
       if (navigator.share) {
         try {
           await navigator.share({ text });
-        } catch {
-          /* dismissed */
+          return;
+        } catch (err) {
+          if (err && err.name === 'AbortError') return; // they closed the share sheet
         }
-        return;
       }
       try {
         await navigator.clipboard.writeText(text);

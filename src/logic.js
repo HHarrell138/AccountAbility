@@ -86,7 +86,7 @@ function pairStreak(memberIds, habits, checkins, today, sinceDay) {
   return { weeks: weeks + (currentWeekMet ? 1 : 0), currentWeekMet };
 }
 
-module.exports = {
+const api = {
   isValidDay,
   addDays,
   daysBetween,
@@ -96,3 +96,7 @@ module.exports = {
   scoreWeek,
   pairStreak,
 };
+
+// Shared with the browser preview build (public/demo.js).
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+else globalThis.AALogic = api;
