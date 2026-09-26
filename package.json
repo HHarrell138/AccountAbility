@@ -1,0 +1,13 @@
+{
+  "name": "accountability",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A habit tracker built on 1-on-1 accountability.",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
+  }
+}

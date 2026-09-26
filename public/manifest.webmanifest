@@ -1,0 +1,12 @@
+{
+  "name": "AccountAbility",
+  "short_name": "AccountAbility",
+  "description": "Habits you keep because someone's counting on you.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#1f6f5c",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
