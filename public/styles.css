@@ -305,22 +305,13 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .streak-next { margin-top: 10px; }
 .streak > div:nth-child(2) { flex: 1 1 auto; min-width: 0; }
 
-/* past weeks, in a collapsed dropdown */
-.history-drop { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
-.history-drop summary { display: flex; align-items: center; gap: 6px; padding: 8px 0; font-size: 0.86rem; font-weight: 700; color: var(--muted); cursor: pointer; list-style: none; }
-.history-drop summary::-webkit-details-marker { display: none; }
-.history-drop .chev { width: 16px; height: 16px; transition: transform 0.2s ease; }
-.history-drop[open] .chev { transform: rotate(180deg); }
-.history-list { list-style: none; padding: 0; margin: 0 0 4px; display: grid; gap: 2px; }
-.history-list li { display: grid; grid-template-columns: 10px 1fr auto 4.5rem; align-items: center; gap: 10px; padding: 6px 0; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
-.history-tier { font-weight: 700; text-align: right; color: var(--muted); }
-.history-tier.blue { color: var(--you); }
-.history-tier.green { color: var(--good); }
-.history-tier.gold { color: var(--gold); }
-.wk { width: 10px; height: 10px; border-radius: 3px; background: var(--surface-2); }
+/* last weeks, oldest first, this week outlined */
+.history { display: flex; gap: 4px; align-self: flex-start; padding-top: 6px; }
+.wk { width: 10px; height: 22px; border-radius: 4px; background: var(--surface-2); }
 .wk.blue { background: var(--you); }
 .wk.green { background: var(--good); }
 .wk.gold { background: var(--gold); }
+.wk.now { outline: 2px solid var(--ink); outline-offset: 1px; opacity: 0.85; }
 
 /* 70% line on this week's bars */
 .bar.marked { position: relative; overflow: visible; }
