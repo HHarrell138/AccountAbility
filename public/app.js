@@ -880,7 +880,7 @@
               ${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${n === preset.days ? 'selected' : ''}>${n}${n === 7 ? ' (every day)' : ''}</option>`).join('')}
             </select>
           </label>`}
-          <button class="btn primary wide" type="submit">${shared ? `Propose to ${partnerName}` : 'Add side goal'}</button>
+          <button class="btn primary wide" type="submit">${shared ? 'Propose goal' : 'Add side goal'}</button>
         </form>`;
     }
 
