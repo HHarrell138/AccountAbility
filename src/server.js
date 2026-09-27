@@ -16,6 +16,7 @@ const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 // Must match the icon keys in public/app.js.
 const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake'];
+const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const MIME = {
@@ -341,27 +342,44 @@ function createApp({ dbFile = ':memory:' } = {}) {
     };
   });
 
+  // Optional per-day times, e.g. {"mon":"05:30","sat":"09:00"}. Days left out
+  // are off. When set, the weekly target is the number of scheduled days.
+  function parseSchedule(value) {
+    if (value === undefined || value === null || value === '') return '';
+    if (typeof value !== 'object' || Array.isArray(value)) fail(400, 'schedule must be an object of day: time');
+    const out = {};
+    for (const [day, time] of Object.entries(value)) {
+      if (!WEEKDAYS.includes(day)) fail(400, `Unknown day in schedule: ${day}`);
+      if (typeof time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) fail(400, `Pick a time for ${day}`);
+    }
+    for (const day of WEEKDAYS) if (value[day]) out[day] = value[day];
+    if (!Object.keys(out).length) fail(400, 'Pick at least one day');
+    return JSON.stringify(out);
+  }
+
   function habitFields(body) {
     const icon = body.icon === undefined ? 'check' : body.icon;
     if (!HABIT_ICONS.includes(icon)) fail(400, 'Unknown habit icon');
+    const schedule = parseSchedule(body.schedule);
     return {
       title: str(body.title, 'Goal', { max: 80 }),
       why: str(body.why, 'Why', { max: 200, required: false }),
-      target: int(body.target_per_week, 'Days per week', 1, 7),
+      target: schedule ? Object.keys(JSON.parse(schedule)).length : int(body.target_per_week, 'Days per week', 1, 7),
       icon,
+      schedule,
     };
   }
 
   route('POST', '/api/habits', ({ user, body }) => {
     const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
-    const { title, why, target, icon } = habitFields(body);
+    const { title, why, target, icon, schedule } = habitFields(body);
     const today = clientToday(body.today);
     const { active } = q('SELECT COUNT(*) AS active FROM habits WHERE partnership_id = ? AND user_id = ? AND archived_day IS NULL').get(p.id, user.id);
     if (active >= 10) fail(400, 'Ten habits is plenty. Archive one first.');
     const habit = q(
-      `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, created_day)
-       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, target, icon, today);
+      `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, created_day)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, target, icon, schedule, today);
     addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: `${target}x / week` });
     return { habit };
   });
@@ -390,12 +408,12 @@ function createApp({ dbFile = ':memory:' } = {}) {
 
   route('POST', '/api/goals', ({ user, body }) => {
     const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
-    const { title, why, target, icon } = habitFields(body);
+    const { title, why, target, icon, schedule } = habitFields(body);
     const { open } = q(`SELECT COUNT(*) AS open FROM goals WHERE partnership_id = ? AND status IN ('proposed', 'active')`).get(p.id);
     if (open >= 10) fail(400, 'Ten shared goals is plenty. End one first.');
     const goal = q(
-      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week) VALUES (?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, icon, target);
+      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week, schedule) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, icon, target, schedule);
     addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'goal_proposed', message: `${title} (${target}x / week)` });
     return { goal };
   });
@@ -426,9 +444,9 @@ function createApp({ dbFile = ':memory:' } = {}) {
       q(`UPDATE goals SET status = 'active', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(goal.id);
       for (const uid of memberIds(goal.partnership_id)) {
         q(
-          `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, goal_id, created_day)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(goal.partnership_id, uid, goal.title, goal.why, goal.target_per_week, goal.icon, goal.id, today);
+          `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, goal_id, created_day)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(goal.partnership_id, uid, goal.title, goal.why, goal.target_per_week, goal.icon, goal.schedule, goal.id, today);
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
       return { ok: true };

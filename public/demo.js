@@ -73,6 +73,7 @@
       why: h.why || '',
       target_per_week: h.target_per_week,
       icon: h.icon || 'check',
+      schedule: h.schedule || '',
       goal_id: goalId,
       created_day: today,
       archived_day: null,
@@ -82,10 +83,24 @@
     return habit;
   }
 
+  // Same rules as the server: days in week order, target = number of days.
+  const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  function fields(b) {
+    const out = { title: text(b.title, 'Goal', { max: 80 }), icon: b.icon, why: text(b.why, 'Why', { required: false }), target_per_week: Number(b.target_per_week), schedule: '' };
+    if (b.schedule) {
+      const sched = {};
+      for (const d of DAYS) if (b.schedule[d]) sched[d] = b.schedule[d];
+      if (!Object.keys(sched).length) fail(400, 'Pick at least one day');
+      out.schedule = JSON.stringify(sched);
+      out.target_per_week = Object.keys(sched).length;
+    }
+    return out;
+  }
+
   const goalLabel = (g) => `${g.title} (${g.target_per_week}x / week)`;
 
   function propose(userId, g) {
-    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, status: 'proposed' };
+    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', status: 'proposed' };
     db.goals.push(goal);
     addEvent({ actor_id: userId, kind: 'goal_proposed', message: goalLabel(goal) });
     return goal;
@@ -222,15 +237,13 @@
     }],
     ['POST', /^\/api\/habits$/, (b) => {
       requirePact(b.partnership_id);
-      const title = text(b.title, 'Habit', { max: 80 });
       if (db.habits.filter((h) => h.user_id === ME && !h.archived_day).length >= 10) fail(400, 'Ten habits is plenty. Archive one first.');
-      const habit = addHabit(ME, { title, icon: b.icon, why: text(b.why, 'Why', { required: false }), target_per_week: Number(b.target_per_week) }, b.today);
+      const habit = addHabit(ME, fields(b), b.today);
       return { habit };
     }],
     ['POST', /^\/api\/goals$/, (b) => {
       requirePact(b.partnership_id);
-      const title = text(b.title, 'Goal', { max: 80 });
-      const goal = propose(ME, { title, icon: b.icon, why: text(b.why, 'Why', { required: false }), target_per_week: Number(b.target_per_week) });
+      const goal = propose(ME, fields(b));
       if (db.members.includes(KING)) kingAgrees(b.today);
       return { goal };
     }],

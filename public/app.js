@@ -4,6 +4,7 @@
   const app = document.getElementById('app');
   const toastEl = document.getElementById('toast');
   const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const WEEK = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 
   // Habit icons: 24x24 line drawings in currentColor. Keys must match
   // HABIT_ICONS in src/server.js.
@@ -48,7 +49,7 @@
     { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, min: 500, unit: 'steps', days: 5 },
     { key: 'read', icon: 'read', label: 'Read', title: (n) => `Read ${n} pages`, amount: 20, min: 1, unit: 'pages', days: 5 },
     { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, min: 4, unit: 'hours', days: 5 },
-    { key: 'wake', icon: 'wake', label: 'Wake up', title: (t) => `Wake up by ${clockTime(t)}`, time: '06:00', days: 5 },
+    { key: 'wake', icon: 'wake', label: 'Wake up', schedule: { mon: '06:00', tue: '06:00', wed: '06:00', thu: '06:00', fri: '06:00', sat: '08:00', sun: '08:00' } },
     { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
   ];
 
@@ -334,17 +335,19 @@
 
     const items = goals.map((h) => {
       const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
-      const status = c ? c.status : scored.get(h.id).met ? 'rest' : 'todo';
+      const sched = parseSched(h.schedule);
+      const offToday = sched && !sched[dayKey(d.today)];
+      const status = c ? c.status : offToday ? 'off' : scored.get(h.id).met ? 'rest' : 'todo';
       return { h, status };
     });
-    const due = items.filter((i) => i.status !== 'rest');
+    const due = items.filter((i) => i.status !== 'rest' && i.status !== 'off');
     const done = due.filter((i) => i.status === 'done').length;
     const missed = due.filter((i) => i.status === 'missed').length;
     const left = due.length - done - missed;
 
     let meta;
     if (!goals.length) meta = 'No goals yet';
-    else if (!due.length) meta = 'Rest day. Every weekly target is already hit.';
+    else if (!due.length) meta = 'Nothing due today.';
     else if (left === 0 && missed === 0) meta = '<strong>All done</strong> for today';
     else meta = [left ? `<strong>${left} left</strong>` : '', missed ? `${missed} missed` : ''].filter(Boolean).join(' · ');
 
@@ -362,12 +365,16 @@
         } else {
           control = `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Mark ${esc(h.title)} done today">${uiIcon('done')}</button>`;
         }
-        const note = status === 'rest' ? '<span class="today-note">week done</span>' : status === 'missed' ? '<span class="today-note bad">missed</span>' : '';
+        const note =
+          status === 'rest' ? '<span class="today-note">week done</span>'
+          : status === 'off' ? '<span class="today-note">off today</span>'
+          : status === 'missed' ? '<span class="today-note bad">missed</span>'
+          : '';
         return `
           <div class="today-row ${status}">
             <button type="button" class="today-name" data-action="jump" data-target="${h.goal_id ? `g-${h.goal_id}` : `h-${h.id}`}">
               <span class="icon-tile sm">${iconSvg(h.icon)}</span>
-              <span class="today-title">${esc(h.title)}</span>
+              <span class="today-title">${esc(todayTitle(h))}</span>
               ${h.goal_id ? '<span class="tag">shared</span>' : ''}
               ${note}
             </button>
@@ -462,7 +469,7 @@
               <div class="proposal-body">
                 <p class="small muted">${mine ? `You proposed. ${partner ? `Waiting on ${esc(partner.name)}.` : 'Waiting for your partner to join.'}` : `${nameOf(g.proposed_by)} wants you both to`}</p>
                 <p class="proposal-title">${esc(g.title)}</p>
-                <p class="small muted">${g.target_per_week}x a week${g.why ? ` · ${esc(g.why)}` : ''}</p>
+                <p class="small muted">${esc(cadence(g))}${g.why ? ` · ${esc(g.why)}` : ''}</p>
                 <div class="row">
                   ${mine
                     ? `<button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="withdraw">Withdraw</button>`
@@ -494,10 +501,12 @@
     else if (need === daysLeft) outlook = `<span class="pill warn">no slack</span>`;
     else outlook = `<span class="pill">${need} to go</span>`;
 
+    const sched = parseSched(h.schedule);
     const dots = DAY_LABELS.map((label, i) => {
       const day = addDays(start, i);
       const c = byDay.get(day);
-      const cls = ['dot', c ? c.status : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day ? 'off' : ''].join(' ');
+      const offDay = sched && !sched[WEEK[i][0]];
+      const cls = ['dot', c ? c.status : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
       const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : day;
       return `<span class="${cls}" title="${esc(title)}"></span>`;
     }).join('');
@@ -630,7 +639,7 @@
     return `
       <article class="card goal ${open ? 'is-open' : ''}" id="g-${g.id}">
         <div class="goal-hit" data-action="toggle-goal" data-goal="${g.id}">
-          ${cardHead(g.icon, g.title, `Both of you · ${g.target_per_week}x a week`, g.why)}
+          ${cardHead(g.icon, g.title, `Both of you · ${esc(cadence(g))}`, g.why)}
           ${mine ? proratedNote(mine) : ''}
         </div>
         <div class="tracker">
@@ -650,7 +659,7 @@
     const mine = isMe(h.user_id);
     return `
       <article class="card side" id="h-${h.id}">
-        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`} · ${h.target_per_week}x a week`, h.why)}
+        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`} · ${esc(cadence(h))}`, h.why)}
         ${proratedNote(h)}
         <div class="tracker">
           ${dayHeader()}
@@ -679,11 +688,20 @@
       const fields =
         preset.key === 'custom'
           ? `<label for="${kind}-title">Goal<input id="${kind}-title" name="title" maxlength="80" required placeholder="${shared ? 'No phone after 10pm' : 'Edit one video'}" data-autofocus></label>`
-          : preset.time
-            ? `<label for="${kind}-time">What time?
-                 <input id="${kind}-time" name="time" type="time" value="${preset.time}" required data-action="preset-amount">
-               </label>
-               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.time))}</span></p>`
+          : preset.schedule
+            ? `<fieldset class="sched">
+                 <legend>Wake-up time for each day</legend>
+                 ${WEEK.map(
+                   ([k, label]) => `
+                   <div class="sched-row">
+                     <span class="sched-day">${label}</span>
+                     <input id="${kind}-t-${k}" name="t-${k}" type="time" value="${preset.schedule[k]}" aria-label="${label} wake-up time" data-action="sched-input">
+                     <label class="sched-off"><input type="checkbox" name="off-${k}" data-action="sched-input">Off</label>
+                   </div>`
+                 ).join('')}
+               </fieldset>
+               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(schedTitle(preset.schedule))}</span></p>
+               <p class="small muted" data-role="preview-sub">${esc(schedLine(preset.schedule))}</p>`
           : preset.amount
             ? `<label for="${kind}-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
@@ -695,11 +713,13 @@
           ${fields}
           <label for="${kind}-why">${shared ? 'Why you’re doing it together' : 'Why it matters'} <span class="muted">(optional)</span>
             <input id="${kind}-why" name="why" maxlength="200" placeholder="${shared ? 'Feel good for the wedding' : 'Content pays for the trip'}"></label>
-          <label for="${kind}-days">Days per week${shared ? ' (for both of you)' : ''}
+          ${preset.schedule
+            ? ''
+            : `<label for="${kind}-days">Days per week${shared ? ' (for both of you)' : ''}
             <select id="${kind}-days" name="target_per_week">
               ${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${n === preset.days ? 'selected' : ''}>${n}${n === 7 ? ' (every day)' : ''}</option>`).join('')}
             </select>
-          </label>
+          </label>`}
           <button class="btn primary wide" type="submit">${shared ? `Propose to ${partnerName}` : 'Add side goal'}</button>
         </form>`;
     }
@@ -722,9 +742,69 @@
     return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   }
 
-  // Title for a preset + amount (or time), with numbers tidied (1.50 -> 1.5).
+  // ---------- wake-up schedules ----------
+  // A schedule is {mon: "05:30", ..., sun: "09:00"}; days left out are off.
+
+  function parseSched(json) {
+    try {
+      return json ? JSON.parse(json) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // "Mon–Thu 5:30 AM · Fri 7:00 AM · Sat–Sun 9:00 AM"
+  function schedSummary(sched) {
+    const parts = [];
+    for (let i = 0; i < 7; i++) {
+      const t = sched[WEEK[i][0]];
+      if (!t) continue;
+      let j = i;
+      while (j + 1 < 7 && sched[WEEK[j + 1][0]] === t) j++;
+      parts.push(`${j > i ? `${WEEK[i][1]}–${WEEK[j][1]}` : WEEK[i][1]} ${clockTime(t)}`);
+      i = j;
+    }
+    return parts.join(' · ');
+  }
+
+  function schedTitle(sched) {
+    const times = Object.values(sched);
+    if (!times.length) return '…';
+    return new Set(times).size === 1 ? `Wake up by ${clockTime(times[0])}` : 'Wake up on schedule';
+  }
+
+  function schedLine(sched) {
+    const n = Object.keys(sched).length;
+    return n ? `${schedSummary(sched)} · ${n === 7 ? 'every day' : `${n} day${n === 1 ? '' : 's'} a week`}` : 'Pick at least one day';
+  }
+
+  function readSched(form) {
+    const sched = {};
+    for (const [k] of WEEK) {
+      const off = form.querySelector(`[name="off-${k}"]`).checked;
+      const t = form.querySelector(`[name="t-${k}"]`).value;
+      if (!off && /^\d{2}:\d{2}$/.test(t)) sched[k] = t;
+    }
+    return sched;
+  }
+
+  const dayKey = (day) => WEEK[(new Date(day + 'T00:00:00Z').getUTCDay() + 6) % 7][0];
+
+  // What to call a goal today: a scheduled wake-up shows today's time.
+  function todayTitle(h) {
+    const sched = parseSched(h.schedule);
+    const t = sched && sched[dayKey(state.dash.today)];
+    return t ? `Wake up by ${clockTime(t)}` : h.title;
+  }
+
+  // "7x a week", or the schedule when there is one.
+  const cadence = (x) => {
+    const sched = parseSched(x.schedule);
+    return sched ? schedSummary(sched) : `${x.target_per_week}x a week`;
+  };
+
+  // Title for a preset + amount, with numbers tidied (1.50 -> 1.5).
   function presetTitle(preset, raw) {
-    if (preset.time) return /^\d{2}:\d{2}/.test(raw) ? preset.title(raw) : null;
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return null;
     return preset.title(Math.round(n * 100) / 100);
@@ -826,18 +906,23 @@
     async goal(f) {
       const preset = PRESETS.find((p) => p.key === f.dataset.preset);
       let title;
+      let schedule;
       if (preset.key === 'custom') title = f.title.value;
-      else if (preset.time) title = presetTitle(preset, f.time.value);
-      else if (preset.amount) title = presetTitle(preset, f.amount.value);
+      else if (preset.schedule) {
+        schedule = readSched(f);
+        if (!Object.keys(schedule).length) throw new Error('Pick at least one day');
+        title = schedTitle(schedule);
+      } else if (preset.amount) title = presetTitle(preset, f.amount.value);
       else title = preset.title();
-      if (!title) throw new Error(preset.time ? 'Pick a time' : `Enter how many ${preset.unit}`);
+      if (!title) throw new Error(`Enter how many ${preset.unit}`);
       const shared = f.dataset.kind === 'shared';
       await api('POST', shared ? '/api/goals' : '/api/habits', {
         partnership_id: state.pid,
         title,
         icon: preset.icon,
         why: f.why.value,
-        target_per_week: Number(f.target_per_week.value),
+        target_per_week: schedule ? Object.keys(schedule).length : Number(f.target_per_week.value),
+        schedule,
         today: localToday(),
       });
       state.preset = null;
@@ -984,6 +1069,14 @@
 
   // Live title preview while typing an amount.
   app.addEventListener('input', (ev) => {
+    if (ev.target.dataset.action === 'sched-input') {
+      const form = ev.target.closest('form');
+      for (const [k] of WEEK) form.querySelector(`[name="t-${k}"]`).disabled = form.querySelector(`[name="off-${k}"]`).checked;
+      const sched = readSched(form);
+      form.querySelector('[data-role=preview]').textContent = schedTitle(sched);
+      form.querySelector('[data-role=preview-sub]').textContent = schedLine(sched);
+      return;
+    }
     if (ev.target.dataset.action !== 'preset-amount') return;
     const form = ev.target.closest('form');
     const preset = PRESETS.find((p) => p.key === form?.dataset.preset);

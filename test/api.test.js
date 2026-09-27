@@ -233,3 +233,35 @@ test('one-tap done can be undone, a miss cannot', async (t) => {
   await c('POST', '/api/checkins', { habit_id: h.id, status: 'missed', note: 'Travel day', today });
   assert.equal((await c('POST', '/api/checkins/undo', { habit_id: h.id, today })).status, 400);
 });
+
+test('wake-up schedule: per-day times set the weekly target and carry into shared goals', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const a = client(base);
+  const b = client(base);
+  await a('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await b('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
+  const { id: pid, invite_code } = (await a('POST', '/api/partnerships', { today })).data.partnership;
+  await b('POST', '/api/partnerships/join', { code: invite_code });
+
+  const schedule = { sat: '09:00', mon: '05:30', tue: '05:30', wed: '05:30', thu: '05:30', fri: '07:00', sun: '09:00' };
+  const side = await a('POST', '/api/habits', { partnership_id: pid, title: 'Wake up on schedule', icon: 'wake', schedule, today });
+  assert.equal(side.status, 200);
+  assert.equal(side.data.habit.target_per_week, 7);
+  assert.deepEqual(Object.keys(JSON.parse(side.data.habit.schedule)), ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+
+  const weekdays = { mon: '06:00', tue: '06:00', wed: '06:00', thu: '06:00', fri: '06:00' };
+  const goal = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Wake up by 6:00 AM', icon: 'wake', schedule: weekdays, today })).data.goal;
+  assert.equal(goal.target_per_week, 5);
+  await b('POST', `/api/goals/${goal.id}/respond`, { answer: 'accept', today });
+  const dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  const kingsCopy = dash.habits.find((h) => h.goal_id === goal.id && h.user_id !== side.data.habit.user_id);
+  assert.equal(kingsCopy.schedule, JSON.stringify(weekdays));
+
+  assert.equal((await a('POST', '/api/habits', { partnership_id: pid, title: 'X', schedule: { funday: '05:00' }, today })).status, 400);
+  assert.equal((await a('POST', '/api/habits', { partnership_id: pid, title: 'X', schedule: { mon: '25:00' }, today })).status, 400);
+  assert.equal((await a('POST', '/api/habits', { partnership_id: pid, title: 'X', schedule: {}, today })).status, 400);
+});

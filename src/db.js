@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS goals (
   why              TEXT NOT NULL DEFAULT '',
   icon             TEXT NOT NULL DEFAULT 'check',
   target_per_week  INTEGER NOT NULL CHECK (target_per_week BETWEEN 1 AND 7),
+  schedule         TEXT NOT NULL DEFAULT '',
   status           TEXT NOT NULL DEFAULT 'proposed'
                    CHECK (status IN ('proposed', 'active', 'declined', 'withdrawn', 'ended')),
   created_at       TEXT NOT NULL DEFAULT ${NOW},
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS habits (
   why              TEXT NOT NULL DEFAULT '',
   target_per_week  INTEGER NOT NULL CHECK (target_per_week BETWEEN 1 AND 7),
   icon             TEXT NOT NULL DEFAULT 'check',
+  schedule         TEXT NOT NULL DEFAULT '',   -- JSON {"mon":"05:30",...}; '' = any days
   goal_id          INTEGER REFERENCES goals(id) ON DELETE CASCADE,
   created_day      TEXT NOT NULL,
   archived_day     TEXT,
@@ -109,6 +111,9 @@ function migrate(db) {
   const habitCols = db.prepare('PRAGMA table_info(habits)').all().map((c) => c.name);
   if (!habitCols.includes('icon')) db.exec("ALTER TABLE habits ADD COLUMN icon TEXT NOT NULL DEFAULT 'check'");
   if (!habitCols.includes('goal_id')) db.exec('ALTER TABLE habits ADD COLUMN goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE');
+  if (!habitCols.includes('schedule')) db.exec("ALTER TABLE habits ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
+  const goalCols = db.prepare('PRAGMA table_info(goals)').all().map((c) => c.name);
+  if (!goalCols.includes('schedule')) db.exec("ALTER TABLE goals ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
 }
 
 function openDb(file = ':memory:') {

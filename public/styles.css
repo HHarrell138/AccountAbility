@@ -519,6 +519,16 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .preset.wide .icon-tile { width: 32px; height: 32px; border-radius: 10px; }
 .preset.wide .icon-tile .hicon { width: 20px; height: 20px; }
 .preset.on { border-color: var(--you); background: var(--you-soft); }
+/* wake-up schedule editor */
+.sched { border: 0; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
+.sched legend { font-size: 0.88rem; font-weight: 600; margin-bottom: 6px; padding: 0; }
+.sched-row { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.sched-day { font-weight: 700; font-size: 0.9rem; }
+.sched-row input[type="time"] { margin: 0; padding: 9px 12px; }
+.sched-row input[type="time"]:disabled { opacity: 0.35; }
+.sched-off { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--muted); cursor: pointer; }
+.sched-off input { width: 18px; height: 18px; margin: 0; accent-color: var(--you); }
+.today-row.off { opacity: 0.6; }
 .preview-title { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; font: 700 1.05rem var(--font-display); }
 .preview-title .hicon { width: 22px; height: 22px; color: var(--muted); flex: 0 0 auto; }
 
