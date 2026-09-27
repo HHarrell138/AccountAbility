@@ -9,12 +9,12 @@
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v7';
+  const KEY = 'aa.demo.v8';
   const ME = 1;
   const KING = 2;
   const KING_USER = { id: KING, name: 'King', username: 'king' };
   const KING_SIDE = { title: 'Work out', icon: 'workout', why: 'Stay strong for the season', target_per_week: 4 };
-  const KING_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6, daily_amount: 1, unit: 'gal', step: 0.25 };
+  const KING_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6, daily_amount: 128, unit: 'oz', step: 8 };
 
   function localToday() {
     const d = new Date();
@@ -101,7 +101,7 @@
       const amount = Number(b.daily_amount);
       const step = Number(b.step);
       if (!(amount > 0)) fail(400, 'Daily amount must be a positive number');
-      if (!(step > 0) || step > amount) fail(400, 'The + step must be positive and no bigger than the daily amount');
+      if (!(step >= 0) || step > amount) fail(400, 'Each tap must add something between 0 and the daily amount'); // 0 = ask each time
       Object.assign(out, { daily_amount: amount, unit: text(b.unit, 'Unit', { max: 12 }), step });
     }
     return out;
@@ -302,6 +302,12 @@
     ['PATCH', /^\/api\/habits\/(\d+)$/, (b, q, m) => {
       const h = db.habits.find((x) => x.id === Number(m[1]) && x.user_id === ME);
       if (!h) fail(404, 'Habit not found');
+      if (b.step !== undefined) {
+        const step = Number(b.step);
+        if (!(h.daily_amount > 0)) fail(400, 'That goal is not logged by amount');
+        if (!(step >= 0) || step > h.daily_amount) fail(400, 'Each tap must add something between 0 and the daily amount');
+        h.step = Math.round(step * 100) / 100;
+      }
       if (b.schedule !== undefined) {
         if (!h.schedule) fail(400, 'That goal has no schedule');
         const schedule = fields({ title: h.title, schedule: b.schedule }).schedule;

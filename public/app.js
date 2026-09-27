@@ -44,8 +44,8 @@
   const PRESETS = [
     // `track` = log as you go: the + button adds `step` of `unit` to today's total.
     { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'}`, amount: 3, min: 0.25, unit: 'miles', days: 4, track: { unit: 'mi', step: 1 } },
-    { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7, track: { unit: 'gal', step: 0.25 } },
-    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7, track: { unit: 'g', step: 10 } },
+    { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7, track: { unit: 'oz', step: 8, per: 128 } }, // goal set in gallons, logged in ounces
+    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7, track: { unit: 'g', step: 0 } }, // 0: type the grams each time
     { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7, track: { unit: 'cal', step: 100 } },
     { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, min: 500, unit: 'calories', days: 6 },
     { key: 'workout', icon: 'workout', label: 'Workout', title: () => 'Work out', days: 4 },
@@ -362,7 +362,7 @@
       .map(({ h, status }) => {
         let control;
         if (tracked(h) && status !== 'missed') {
-          control = `<button class="tick you sm plus ${status === 'done' ? 'on' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}" aria-label="Add ${esc(fmtAmount(h.step, h.unit))} to ${esc(h.title)}"><span>+${esc(stepLabel(h.step))}</span></button>`;
+          control = plusButton(h, status === 'done', 'today', true);
         } else if (status === 'done') {
           control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
         } else if (status === 'missed') {
@@ -384,6 +384,7 @@
               ${note}
             </button>
             ${control}
+            ${tracked(h) && panelFor(h, 'today') ? amountPanel(h) : ''}
           </div>`;
       })
       .join('');
@@ -532,8 +533,7 @@
   function rowAction(h, w) {
     const d = state.dash;
     if (isMe(h.user_id) && tracked(h)) {
-      const on = w.todayC?.status === 'done';
-      return `<button class="tick you plus ${on ? 'on' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}" aria-label="Add ${esc(fmtAmount(h.step, h.unit))}"><span>+${esc(stepLabel(h.step))}</span></button>`;
+      return plusButton(h, w.todayC?.status === 'done', 'card');
     }
     if (isMe(h.user_id)) {
       if (w.todayC?.status === 'done') {
@@ -735,7 +735,14 @@
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
                </label>
                <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.amount))}</span></p>
-               ${preset.track ? `<p class="small muted">Log it as you go: each tap of + adds ${fmtAmount(preset.track.step, preset.track.unit)}. Hitting the amount counts as done.</p>` : ''}`
+               ${preset.track
+                 ? preset.track.step
+                   ? `<label for="${kind}-step">Each tap of + adds <span class="muted">(${esc(UNIT_NAMES[preset.track.unit])})</span>
+                        <input id="${kind}-step" name="step" type="number" inputmode="decimal" min="0.01" step="any" value="${preset.track.step}" required>
+                      </label>
+                      <p class="small muted">Log it as you go. Hitting the amount counts as done. You can change the tap size later.</p>`
+                   : `<p class="small muted">Log it as you go: tap + and type how many ${esc(UNIT_NAMES[preset.track.unit])} each time. Hitting the amount counts as done.</p>`
+                 : ''}`
             : `<p class="preview-title">${iconSvg(preset.icon)}<span>${esc(preset.title())}</span></p>`;
       form = `
         <form data-form="goal" data-kind="${kind}" data-preset="${preset.key}">
@@ -853,6 +860,49 @@
   // ---------- log-as-you-go amounts ----------
 
   const tracked = (h) => h.daily_amount > 0;
+  const UNIT_NAMES = { mi: 'miles', oz: 'ounces', g: 'grams', cal: 'calories', gal: 'gallons' };
+
+  // The + button: adds one tap's worth, or opens the how-much box when the
+  // goal asks each time (step 0). `where` says which box to open.
+  function plusButton(h, on, where, small = false) {
+    const cls = `tick you plus ${small ? 'sm' : ''} ${on ? 'on' : ''}`;
+    if (!(h.step > 0)) {
+      return `<button class="${cls}" data-action="open-amount" data-where="${where}" data-habit="${h.id}" aria-label="Log ${esc(UNIT_NAMES[h.unit] || h.unit)} for ${esc(h.title)}">${uiIcon('plus')}</button>`;
+    }
+    const label = `+${stepLabel(h.step)}`;
+    return `<button class="${cls} ${label.length > 3 ? 'long' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}" aria-label="Add ${esc(fmtAmount(h.step, h.unit))} to ${esc(h.title)}"><span>${esc(label)}</span></button>`;
+  }
+
+  // Type-an-amount box (and the tap-size box), opened from a card or the Today list.
+  function amountPanel(h) {
+    const p = state.panel;
+    if (p?.type === 'step' && p.habitId === h.id) {
+      return `
+        <form class="panel" data-form="step" data-habit="${h.id}">
+          <label for="step-${h.id}">Each tap of + adds <span class="muted">(${esc(UNIT_NAMES[h.unit] || h.unit)})</span>
+            <input id="step-${h.id}" name="step" type="number" inputmode="decimal" step="any" min="0" value="${h.step || ''}" placeholder="0" data-autofocus>
+          </label>
+          <p class="small muted">Set it to 0 to type the amount each time instead.</p>
+          <div class="row">
+            <button class="btn primary" type="submit">Save</button>
+            <button class="btn" type="button" data-action="close-panel">Cancel</button>
+          </div>
+        </form>`;
+    }
+    return `
+      <form class="panel" data-form="amount" data-habit="${h.id}">
+        <label for="amount-${h.id}">How many ${esc(UNIT_NAMES[h.unit] || h.unit)}?
+          <input id="amount-${h.id}" name="amount" type="number" inputmode="decimal" step="any" min="0" required placeholder="${h.unit === 'g' ? 'e.g. 35' : ''}" data-autofocus>
+        </label>
+        <div class="row">
+          <button class="btn primary" type="submit">Add</button>
+          <button class="btn" type="button" data-action="close-panel">Cancel</button>
+        </div>
+      </form>`;
+  }
+
+  const panelFor = (h, where) =>
+    (state.panel?.type === 'amount' || state.panel?.type === 'step') && state.panel.habitId === h.id && state.panel.where === where;
 
   function amountOn(h, day) {
     return state.dash.amounts?.find((a) => a.habit_id === h.id && a.day === day)?.amount || 0;
@@ -879,26 +929,16 @@
     const got = amountOn(h, d.today);
     const pct = Math.min(100, Math.round((got / h.daily_amount) * 100));
     const mine = isMe(h.user_id) && !h.archived_day;
-    if (mine && state.panel?.type === 'amount' && state.panel.habitId === h.id) {
-      return `
-        <form class="panel" data-form="amount" data-habit="${h.id}">
-          <label for="amount-${h.id}">How much? <span class="muted">(${esc(h.unit)})</span>
-            <input id="amount-${h.id}" name="amount" type="number" inputmode="decimal" step="any" min="0" required data-autofocus>
-          </label>
-          <div class="row">
-            <button class="btn primary" type="submit">Add</button>
-            <button class="btn" type="button" data-action="close-panel">Cancel</button>
-          </div>
-        </form>`;
-    }
+    if (mine && panelFor(h, 'card')) return amountPanel(h);
     return `
       <div class="amount-row ${whoClass(h.user_id)}">
         <span class="amount-text"><strong>${esc(fmtAmount(got, ''))}</strong> / ${esc(fmtAmount(h.daily_amount, h.unit))} today</span>
         <span class="bar ${whoClass(h.user_id)}"><span style="width:${pct}%"></span></span>
         ${mine
           ? `<span class="amount-tools">
-               ${got > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
-               <button class="link" data-action="open-amount" data-habit="${h.id}">Add…</button>
+               ${got > 0 && h.step > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
+               ${h.step > 0 ? `<button class="link" data-action="open-amount" data-where="card" data-habit="${h.id}">Add…</button>` : ''}
+               <button class="link quiet" data-action="open-step" data-habit="${h.id}">Tap size</button>
              </span>`
           : ''}
       </div>`;
@@ -1033,7 +1073,9 @@
         why: f.why.value,
         target_per_week: schedule ? Object.keys(schedule).length : Number(f.target_per_week.value),
         schedule,
-        ...(preset.track ? { daily_amount: Number(f.amount.value), unit: preset.track.unit, step: preset.track.step } : {}),
+        ...(preset.track
+          ? { daily_amount: Number(f.amount.value) * (preset.track.per || 1), unit: preset.track.unit, step: f.step ? Number(f.step.value) : 0 }
+          : {}),
         today: localToday(),
       });
       state.preset = null;
@@ -1057,6 +1099,14 @@
       await api('PATCH', `/api/habits/${f.dataset.habit}`, { schedule, today: localToday() });
       state.panel = null;
       toast('Times saved.');
+      await refresh();
+    },
+    async step(f) {
+      const n = f.step.value === '' ? 0 : Number(f.step.value);
+      if (!Number.isFinite(n) || n < 0) throw new Error('Enter a number, or 0 to type the amount each time');
+      await api('PATCH', `/api/habits/${f.dataset.habit}`, { step: n });
+      state.panel = null;
+      toast(n ? `Each tap now adds ${n}.` : 'You’ll type the amount each time.');
       await refresh();
     },
     async amount(f) {
@@ -1103,7 +1153,11 @@
       await addAmount(Number(el.dataset.habit), Number(el.dataset.delta));
     },
     'open-amount'(el) {
-      state.panel = { type: 'amount', habitId: Number(el.dataset.habit) };
+      state.panel = { type: 'amount', habitId: Number(el.dataset.habit), where: el.dataset.where || 'card' };
+      render();
+    },
+    'open-step'(el) {
+      state.panel = { type: 'step', habitId: Number(el.dataset.habit), where: 'card' };
       render();
     },
     'open-miss'(el) {

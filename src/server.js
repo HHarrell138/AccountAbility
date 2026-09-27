@@ -377,13 +377,18 @@ function createApp({ dbFile = ':memory:' } = {}) {
   }
 
   // Optional log-as-you-go settings: daily amount, unit, and + button step.
+  // A step of 0 means "ask how much each time" (e.g. grams of protein).
   function amountFields(body) {
     if (body.daily_amount === undefined || body.daily_amount === null) return { daily_amount: 0, unit: '', step: 0 };
     const amount = Number(body.daily_amount);
-    const step = Number(body.step);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) fail(400, 'Daily amount must be a positive number');
-    if (!Number.isFinite(step) || step <= 0 || step > amount) fail(400, 'The + step must be positive and no bigger than the daily amount');
-    return { daily_amount: round2(amount), unit: str(body.unit, 'Unit', { max: 12 }), step: round2(step) };
+    return { daily_amount: round2(amount), unit: str(body.unit, 'Unit', { max: 12 }), step: parseStep(body.step ?? 0, amount) };
+  }
+
+  function parseStep(value, amount) {
+    const step = Number(value);
+    if (!Number.isFinite(step) || step < 0 || step > amount) fail(400, 'Each tap must add something between 0 and the daily amount');
+    return round2(step);
   }
 
   route('POST', '/api/habits', ({ user, body }) => {
@@ -415,6 +420,12 @@ function createApp({ dbFile = ':memory:' } = {}) {
           addEvent({ partnership_id: h.partnership_id, actor_id: user.id, habit_id: h.id, kind: 'habit_archived' });
         }
       });
+    }
+    // Change what one tap of + adds (0 = ask each time). Just a convenience,
+    // so no feed entry.
+    if (body.step !== undefined) {
+      if (!(h.daily_amount > 0)) fail(400, 'That goal is not logged by amount');
+      q('UPDATE habits SET step = ? WHERE id = ?').run(parseStep(body.step, h.daily_amount), h.id);
     }
     // Change your own times on a scheduled goal. Your partner sees that you did.
     if (body.schedule !== undefined) {

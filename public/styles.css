@@ -512,9 +512,16 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .sched-off { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--muted); cursor: pointer; }
 .sched-off input { width: 18px; height: 18px; margin: 0; accent-color: var(--you); }
 .today-row.off { opacity: 0.6; }
+.today-row { flex-wrap: wrap; }
+.today-row > .panel { flex-basis: 100%; }
+.today-row > .today-name { flex: 1 1 0; }
+.tick.plus .ui-icon { width: 22px; height: 22px; }
+.tick.sm.plus .ui-icon { width: 18px; height: 18px; }
 /* log-as-you-go */
 .tick.plus span { font: 800 0.9rem/1 var(--font-display); letter-spacing: -0.02em; }
 .tick.sm.plus span { font-size: 0.78rem; }
+.tick.plus.long span { font-size: 0.72rem; letter-spacing: -0.04em; }
+.tick.sm.plus.long span { font-size: 0.64rem; }
 .amount-row { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 0.84rem; color: var(--muted); }
 .amount-row strong { color: var(--ink); font: 700 0.95rem var(--font-display); font-variant-numeric: tabular-nums; }
 .amount-row .bar { display: block; height: 8px; }

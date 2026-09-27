@@ -12,7 +12,7 @@ Most habit trackers are either solo (easy to lie to yourself) or social (perform
 | **Side goals** | Personal goals your partner can see and nudge you on, but they don't count toward the streak. |
 | **1-on-1 pacts** | No followers, no public feed. Just the person whose opinion you actually care about. |
 | **One tap to log** | Tap the check and it's logged. Tap again (or Undo) if it was an accident. |
-| **Log as you go** | Run, water, protein and calorie goals have a + button (+1 mi, +¼ gal, +10 g, +100 cal) that adds to today's total. Hitting the amount counts as done, and your partner sees the running total. |
+| **Log as you go** | Run, water and calorie goals have a + button (+1 mi, +8 oz, +100 cal, each changeable) that adds to today's total; protein asks how many grams each time. Hitting the amount counts as done, and your partner sees the running total. |
 | **Misses need a reason** | You can't log a miss without saying what got in the way, and your partner sees it. A logged miss can't be undone. |
 | **Shared pair streak** | The streak only grows in weeks where *both* of you hit *every shared goal*. If you slack, you break it for them too. |
 | **No rewriting history** | You can log today or yesterday, and yesterday is marked *late*. Nothing older. |

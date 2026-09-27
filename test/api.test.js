@@ -350,6 +350,17 @@ test('log as you go: + adds up, hitting the amount counts as done, taking back u
   assert.equal((await a('POST', '/api/amounts', { habit_id: plain.id, delta: 1, today })).status, 400);
   assert.equal((await a('POST', '/api/habits', { partnership_id: pid, title: 'X', target_per_week: 3, daily_amount: 3, unit: 'mi', step: 5, today })).status, 400);
 
+  // Water: change the tap size. Protein: step 0 means type the amount each time.
+  const water = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 8, today })).data.habit;
+  assert.equal((await a('PATCH', `/api/habits/${water.id}`, { step: 16.9 })).status, 200);
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.habits.find((h) => h.id === water.id).step, 16.9);
+  assert.equal((await a('PATCH', `/api/habits/${water.id}`, { step: 500 })).status, 400);
+  assert.equal((await a('PATCH', `/api/habits/${plain.id}`, { step: 1 })).status, 400);
+  const protein = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Eat 150g of protein', icon: 'protein', target_per_week: 7, daily_amount: 150, unit: 'g', step: 0, today })).data.habit;
+  assert.equal(protein.step, 0);
+  assert.deepEqual((await a('POST', '/api/amounts', { habit_id: protein.id, delta: 42, today })).data, { amount: 42, done: false });
+
   // Shared goals carry the amount to both of you.
   const g = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Eat 150g of protein', icon: 'protein', target_per_week: 7, daily_amount: 150, unit: 'g', step: 10, today })).data.goal;
   await b('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
