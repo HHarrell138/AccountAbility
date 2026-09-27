@@ -473,6 +473,31 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .hicon { width: 26px; height: 26px; }
 
 .goal { border: 2px solid var(--ink); }
+.goal-hit { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+/* Collapsed shared goal: a bar with your partner's score that opens the comparison */
+.compare {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  color: var(--ink);
+  background: var(--them-soft);
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+}
+.compare .av { width: 26px; height: 26px; font-size: 0.75rem; }
+.compare .num { font: 700 0.95rem var(--font-display); font-variant-numeric: tabular-nums; }
+.compare-label { margin-left: auto; font-weight: 700; color: var(--them); }
+.compare .chev { color: var(--them); transition: transform 0.2s ease; }
+.compare.open { background: transparent; color: var(--muted); justify-content: center; font-weight: 600; }
+.compare.open .chev { transform: rotate(180deg); color: var(--muted); }
 .card.side { box-shadow: none; }
 
 /* The week grid: avatar | Mon..Sun | action button */

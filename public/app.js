@@ -43,6 +43,7 @@
     star: '<path d="M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8z"/>',
     bell: '<path d="M6.5 16v-5a5.5 5.5 0 0 1 11 0v5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    chevron: '<path d="M6 9l6 6 6-6"/>',
     pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
     flame: ICONS.calories,
     pact: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
@@ -74,6 +75,7 @@
     addOpen: null, // which goal picker is open: 'shared' | 'side' | 'closed' | null
     preset: null, // selected preset key in the open picker
     editStakes: false,
+    expanded: new Set(), // shared goals opened to compare with your partner
     palette: applyPalette(store('aa.palette')),
   };
 
@@ -558,26 +560,44 @@
     return w.target < h.target_per_week ? `<p class="note-line">First week, so it's ${w.target} this week instead of ${h.target_per_week}.</p>` : '';
   }
 
-  // A shared goal: both of you on one card, one row each.
+  // A shared goal. Collapsed, it shows just your row plus a bar with your
+  // partner's score; tap the card to compare both weeks side by side.
   function goalCard(g) {
     const d = state.dash;
-    const people = [...d.members].sort((a, b) => (isMe(a.id) ? -1 : isMe(b.id) ? 1 : 0));
-    const rows = people
-      .map((m) => {
-        const h = d.habits.find((x) => x.goal_id === g.id && x.user_id === m.id);
-        return h ? trackerRow(h, m) : '';
+    const mine = d.habits.find((x) => x.goal_id === g.id && isMe(x.user_id));
+    const others = d.members
+      .filter((m) => !isMe(m.id))
+      .map((m) => ({ m, h: d.habits.find((x) => x.goal_id === g.id && x.user_id === m.id) }))
+      .filter((x) => x.h);
+    const archiving = mine && state.panel && state.panel.type === 'archive' && state.panel.habitId === mine.id;
+    const open = state.expanded.has(g.id) || archiving;
+
+    const compare = others
+      .map(({ m, h }) => {
+        const w = habitWeek(h);
+        return `
+          <button type="button" class="compare ${open ? 'open' : ''}" data-action="toggle-goal" data-goal="${g.id}" aria-expanded="${open}">
+            ${open
+              ? `<span>Hide ${esc(m.name)}</span>`
+              : `${avatar(m)}<span><strong>${esc(m.name)}</strong> <span class="num">${w.done}/${w.target}</span></span>${w.outlook}<span class="compare-label">Compare</span>`}
+            ${uiIcon('chevron', 'chev')}
+          </button>`;
       })
       .join('');
-    const mine = d.habits.find((x) => x.goal_id === g.id && isMe(x.user_id));
+
     return `
-      <article class="card goal">
-        ${cardHead(g.icon, g.title, `Both of you · ${g.target_per_week}x a week`, g.why)}
-        ${mine ? proratedNote(mine) : ''}
+      <article class="card goal ${open ? 'is-open' : ''}">
+        <div class="goal-hit" data-action="toggle-goal" data-goal="${g.id}">
+          ${cardHead(g.icon, g.title, `Both of you · ${g.target_per_week}x a week`, g.why)}
+          ${mine ? proratedNote(mine) : ''}
+        </div>
         <div class="tracker">
           ${dayHeader()}
-          ${rows}
+          ${mine ? trackerRow(mine, d.members.find((m) => isMe(m.id))) : ''}
+          ${open ? others.map(({ m, h }) => trackerRow(h, m)).join('') : ''}
         </div>
-        ${mine ? endControl(mine, true) : ''}
+        ${compare}
+        ${mine && open ? endControl(mine, true) : ''}
       </article>`;
   }
 
@@ -807,6 +827,12 @@
       });
       toast(el.dataset.kind === 'cheer' ? 'Cheer sent.' : 'Nudge sent.');
       await refresh();
+    },
+    'toggle-goal'(el) {
+      const id = Number(el.dataset.goal);
+      if (state.expanded.has(id)) state.expanded.delete(id);
+      else state.expanded.add(id);
+      render();
     },
     'close-panel'() {
       state.panel = null;
