@@ -919,9 +919,52 @@
             <span class="sched-day">${label}</span>
             <input id="${prefix}-t-${k}" name="t-${k}" type="time" value="${t || '07:00'}" ${t ? '' : 'disabled'} aria-label="${label} wake-up time" data-action="sched-input">
             <label class="sched-off"><input type="checkbox" name="off-${k}" ${t ? '' : 'checked'} data-action="sched-input">Off</label>
+            <button type="button" class="link sched-copy" data-action="sched-copy" data-day="${k}">Copy</button>
           </div>`;
         }).join('')}
       </fieldset>`;
+  }
+
+  // Copy one day's time, then Paste it onto as many other days as you like.
+  // Works on the form in place, so nothing typed gets lost to a re-render.
+  function schedCopy(el) {
+    const box = el.closest('fieldset.sched');
+    const from = box.dataset.copy;
+    const form = el.closest('form');
+    if (!from || from === el.dataset.day) {
+      // Start copying this day, or tap Done on the source to stop.
+      const start = !from;
+      box.dataset.copy = start ? el.dataset.day : '';
+      if (start && form.querySelector(`[name="off-${el.dataset.day}"]`).checked) {
+        box.dataset.copy = '';
+        throw new Error('That day is off. Copy a day with a time.');
+      }
+      for (const b of box.querySelectorAll('.sched-copy')) {
+        const src = start && b.dataset.day === el.dataset.day;
+        b.textContent = !start ? 'Copy' : src ? 'Done' : 'Paste';
+        b.closest('.sched-row').classList.toggle('is-source', src);
+      }
+      box.classList.toggle('copying', start);
+      return;
+    }
+    const time = form.querySelector(`[name="t-${from}"]`).value;
+    const to = el.dataset.day;
+    form.querySelector(`[name="off-${to}"]`).checked = false;
+    const input = form.querySelector(`[name="t-${to}"]`);
+    input.disabled = false;
+    input.value = time;
+    el.textContent = 'Pasted';
+    schedChanged(form);
+  }
+
+  // Keep the Off boxes and the title preview in step with the times.
+  function schedChanged(form) {
+    for (const [k] of WEEK) form.querySelector(`[name="t-${k}"]`).disabled = form.querySelector(`[name="off-${k}"]`).checked;
+    const sched = readSched(form);
+    const title = form.querySelector('[data-role=preview]');
+    const sub = form.querySelector('[data-role=preview-sub]');
+    if (title) title.textContent = schedTitle(sched, form.dataset.kind === 'shared');
+    if (sub) sub.textContent = schedLine(sched);
   }
 
   function schedLine(sched) {
@@ -1300,6 +1343,9 @@
       state.panel = { type: 'edit-number', habitId: Number(el.dataset.habit) };
       render();
     },
+    'sched-copy'(el) {
+      schedCopy(el);
+    },
     'edit-sched'(el) {
       state.panel = { type: 'edit-sched', habitId: Number(el.dataset.habit) };
       render();
@@ -1425,13 +1471,7 @@
   // Live title preview while typing an amount.
   app.addEventListener('input', (ev) => {
     if (ev.target.dataset.action === 'sched-input') {
-      const form = ev.target.closest('form');
-      for (const [k] of WEEK) form.querySelector(`[name="t-${k}"]`).disabled = form.querySelector(`[name="off-${k}"]`).checked;
-      const sched = readSched(form);
-      const title = form.querySelector('[data-role=preview]');
-      const sub = form.querySelector('[data-role=preview-sub]');
-      if (title) title.textContent = schedTitle(sched, form.dataset.kind === 'shared');
-      if (sub) sub.textContent = schedLine(sched);
+      schedChanged(ev.target.closest('form'));
       return;
     }
     if (ev.target.dataset.action !== 'preset-amount') return;
