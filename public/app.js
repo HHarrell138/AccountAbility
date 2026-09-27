@@ -5,21 +5,6 @@
   const toastEl = document.getElementById('toast');
   const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-  // ---------- look ----------
-
-  // Each palette gives you and your partner their own color.
-  const PALETTES = [
-    { key: 'sunset', label: 'Sunset', you: '#f2622e', them: '#6b55e0' },
-    { key: 'jungle', label: 'Jungle', you: '#11875a', them: '#e0902b' },
-    { key: 'ink', label: 'Ink', you: '#e8356d', them: '#2b2b2b' },
-  ];
-
-  function applyPalette(key) {
-    const p = PALETTES.find((x) => x.key === key) || PALETTES[0];
-    document.documentElement.dataset.palette = p.key;
-    return p.key;
-  }
-
   // Habit icons: 24x24 line drawings in currentColor. Keys must match
   // HABIT_ICONS in src/server.js.
   const ICONS = {
@@ -76,7 +61,6 @@
     preset: null, // selected preset key in the open picker
     editStakes: false,
     expanded: new Set(), // shared goals opened to compare with your partner
-    palette: applyPalette(store('aa.palette')),
   };
 
   // ---------- utils ----------
@@ -317,13 +301,6 @@
       </section>
 
       <footer class="foot">
-        <div class="looks" role="radiogroup" aria-label="Color palette">
-          <span class="eyebrow">Look</span>
-          ${PALETTES.map(
-            (p) => `<button type="button" class="swatch ${p.key === state.palette ? 'on' : ''}" role="radio" aria-checked="${p.key === state.palette}" data-action="palette" data-palette="${p.key}">
-              <span class="chips"><span style="background:${p.you}"></span><span style="background:${p.them}"></span></span>${esc(p.label)}</button>`
-          ).join('')}
-        </div>
         <button class="link" data-action="new-pact">Start or join another pact</button>
         <button class="link" data-action="logout">Log out</button>
       </footer>`;
@@ -851,6 +828,8 @@
     async respond(el) {
       const answer = el.dataset.answer;
       await api('POST', `/api/goals/${el.dataset.goal}/respond`, { answer, today: localToday() });
+      state.addOpen = null; // tuck the picker away once there's something agreed
+      state.preset = null;
       toast(answer === 'accept' ? 'Agreed. You’re both on it.' : answer === 'decline' ? 'Passed.' : 'Withdrawn.');
       await refresh();
     },
@@ -867,11 +846,6 @@
       state.panel = null;
       await api('PATCH', `/api/habits/${el.dataset.habit}`, { archived: true, today: localToday() });
       await refresh();
-    },
-    palette(el) {
-      state.palette = applyPalette(el.dataset.palette);
-      store('aa.palette', state.palette);
-      render();
     },
     async 'share-code'(el) {
       const code = el.dataset.code;

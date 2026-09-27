@@ -1,210 +1,49 @@
 /* AccountAbility
    Type: Bricolage Grotesque (display, numbers) + Figtree (text).
-   Color: every palette gives "you" and "them" their own color, used for
-   avatars, week dots, progress bars and the round action buttons.
-   Palettes: sunset (default), jungle, ink. Each has light and dark. */
+   Look: one dark theme. Black ground, blue accents. You are blue, your
+   partner is ice-white: avatars, week dots, progress bars and the round
+   action buttons all follow that. Green, red and amber only mean status. */
 
 :root {
   --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --font-text: "Figtree", "Avenir Next", "Segoe UI", system-ui, sans-serif;
 
-  /* sunset, light */
-  --bg: #f3f1f6;
-  --surface: #ffffff;
-  --surface-2: #ece9f1;
-  --ink: #1d1a2b;
-  --muted: #6b6680;
-  --line: #e1dde8;
-  --you: #e8552a;
-  --you-soft: #fde3d8;
+  --bg: #000000;
+  --surface: #0e1116;
+  --surface-2: #181c23;
+  --ink: #f2f4f7;
+  --muted: #8a93a3;
+  --line: #1f242d;
+  --accent-line: #1b3a73;
+
+  --you: #2f7bff;
+  --you-soft: #0d1f40;
   --you-ink: #ffffff;
-  --them: #6b55e0;
-  --them-soft: #e7e2fb;
-  --them-ink: #ffffff;
-  --good: #16865a;
-  --good-soft: #dcf2e7;
-  --bad: #cf3c35;
-  --bad-soft: #fbe4e2;
-  --warn: #9c6410;
-  --warn-soft: #fbefd9;
-  --fresh: #fff4ec;
-  --shadow: 0 1px 2px rgba(29, 26, 43, 0.05), 0 8px 24px -12px rgba(29, 26, 43, 0.12);
+  --them: #e6e9ef;
+  --them-soft: #1c2028;
+  --them-ink: #0a0c10;
+
+  --good: #34d399;
+  --good-soft: #0f2a20;
+  --bad: #ff5a5f;
+  --bad-soft: #2e1214;
+  --warn: #f5b83d;
+  --warn-soft: #2e2410;
+  --fresh: #0b1a33;
+  --shadow: none;
 
   /* goal icon tints */
-  --c-water: #2a74b5;
-  --c-water-bg: #e2eef8;
-  --c-food: #b8532d;
-  --c-food-bg: #f8e7df;
-  --c-fire: #c7741c;
-  --c-fire-bg: #fbecd9;
-  --c-rest: #5a5fb0;
-  --c-rest-bg: #e8e9f7;
+  --c-water: #5aa9ff;
+  --c-water-bg: #0f2138;
+  --c-food: #ff8a65;
+  --c-food-bg: #2e1810;
+  --c-fire: #ffb347;
+  --c-fire-bg: #2d2010;
+  --c-rest: #a5a8ff;
+  --c-rest-bg: #1a1b3a;
 
   --radius: 20px;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #131120;
-    --surface: #1d1a2c;
-    --surface-2: #262238;
-    --ink: #eeebf6;
-    --muted: #a29db8;
-    --line: #2f2a44;
-    --you: #ff7a45;
-    --you-soft: #3a2119;
-    --you-ink: #1d0e07;
-    --them: #9d8bff;
-    --them-soft: #28224a;
-    --them-ink: #120c33;
-    --good: #3ccb8b;
-    --good-soft: #123325;
-    --bad: #ff6b61;
-    --bad-soft: #3a1d1d;
-    --warn: #f2b64c;
-    --warn-soft: #3a2e14;
-    --fresh: #2a1d24;
-    --shadow: none;
-    --c-water: #74b6ec;
-    --c-water-bg: #16293a;
-    --c-food: #f0906a;
-    --c-food-bg: #36201a;
-    --c-fire: #f2ac5e;
-    --c-fire-bg: #352612;
-    --c-rest: #a3a8f0;
-    --c-rest-bg: #22233d;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #131120;
-  --surface: #1d1a2c;
-  --surface-2: #262238;
-  --ink: #eeebf6;
-  --muted: #a29db8;
-  --line: #2f2a44;
-  --you: #ff7a45;
-  --you-soft: #3a2119;
-  --you-ink: #1d0e07;
-  --them: #9d8bff;
-  --them-soft: #28224a;
-  --them-ink: #120c33;
-  --good: #3ccb8b;
-  --good-soft: #123325;
-  --bad: #ff6b61;
-  --bad-soft: #3a1d1d;
-  --warn: #f2b64c;
-  --warn-soft: #3a2e14;
-  --fresh: #2a1d24;
-  --shadow: none;
-  --c-water: #74b6ec;
-  --c-water-bg: #16293a;
-  --c-food: #f0906a;
-  --c-food-bg: #36201a;
-  --c-fire: #f2ac5e;
-  --c-fire-bg: #352612;
-  --c-rest: #a3a8f0;
-  --c-rest-bg: #22233d;
   color-scheme: dark;
-}
-
-/* jungle */
-:root[data-palette="jungle"] {
-  --bg: #eef2ea;
-  --surface: #ffffff;
-  --surface-2: #e3eadd;
-  --ink: #14261b;
-  --muted: #5e6e62;
-  --line: #d8e0d2;
-  --you: #11875a;
-  --you-soft: #d5eee2;
-  --you-ink: #ffffff;
-  --them: #d9821f;
-  --them-soft: #fbe9d2;
-  --them-ink: #ffffff;
-  --fresh: #f3f8ec;
-}
-@media (prefers-color-scheme: dark) {
-  :root[data-palette="jungle"]:not([data-theme="light"]) {
-    --bg: #0f1712;
-    --surface: #17221b;
-    --surface-2: #1f2c24;
-    --ink: #e6eee8;
-    --muted: #97a89c;
-    --line: #28362d;
-    --you: #34c388;
-    --you-soft: #16322a;
-    --you-ink: #06140d;
-    --them: #f2ae55;
-    --them-soft: #3a2c16;
-    --them-ink: #1d1204;
-    --fresh: #1b2a1f;
-  }
-}
-:root[data-palette="jungle"][data-theme="dark"] {
-  --bg: #0f1712;
-  --surface: #17221b;
-  --surface-2: #1f2c24;
-  --ink: #e6eee8;
-  --muted: #97a89c;
-  --line: #28362d;
-  --you: #34c388;
-  --you-soft: #16322a;
-  --you-ink: #06140d;
-  --them: #f2ae55;
-  --them-soft: #3a2c16;
-  --them-ink: #1d1204;
-  --fresh: #1b2a1f;
-}
-
-/* ink */
-:root[data-palette="ink"] {
-  --bg: #f4f4f2;
-  --surface: #ffffff;
-  --surface-2: #eaeae6;
-  --ink: #121212;
-  --muted: #6a6a66;
-  --line: #e0e0db;
-  --you: #e8356d;
-  --you-soft: #fbdce6;
-  --you-ink: #ffffff;
-  --them: #2b2b2b;
-  --them-soft: #e6e6e3;
-  --them-ink: #ffffff;
-  --fresh: #fdf0f4;
-}
-@media (prefers-color-scheme: dark) {
-  :root[data-palette="ink"]:not([data-theme="light"]) {
-    --bg: #0e0e0e;
-    --surface: #181818;
-    --surface-2: #222222;
-    --ink: #f0f0ee;
-    --muted: #9c9c98;
-    --line: #2c2c2c;
-    --you: #ff5c8d;
-    --you-soft: #3a1a25;
-    --you-ink: #1f0610;
-    --them: #e4e4e0;
-    --them-soft: #2e2e2e;
-    --them-ink: #111111;
-    --fresh: #26161c;
-  }
-}
-:root[data-palette="ink"][data-theme="dark"] {
-  --bg: #0e0e0e;
-  --surface: #181818;
-  --surface-2: #222222;
-  --ink: #f0f0ee;
-  --muted: #9c9c98;
-  --line: #2c2c2c;
-  --you: #ff5c8d;
-  --you-soft: #3a1a25;
-  --you-ink: #1f0610;
-  --them: #e4e4e0;
-  --them-soft: #2e2e2e;
-  --them-ink: #111111;
-  --fresh: #26161c;
 }
 
 /* ---------- base ---------- */
@@ -318,8 +157,8 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   width: 64px;
   height: 64px;
   border-radius: 20px;
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--you);
+  color: var(--you-ink);
 }
 .mark .ui-icon { width: 38px; height: 38px; }
 .wordmark { font-size: 2.1rem; font-weight: 800; margin-top: 14px; letter-spacing: -0.03em; }
@@ -472,7 +311,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .icon-tile:has(.i-sleep), .icon-tile:has(.i-read) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
 .hicon { width: 26px; height: 26px; }
 
-.goal { border: 2px solid var(--ink); }
+.goal { border: 1.5px solid var(--accent-line); }
 .goal-hit { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 
 /* Collapsed shared goal: a bar with your partner's score that opens the comparison */
@@ -640,26 +479,6 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 /* ---------- footer ---------- */
 
 .foot { display: grid; justify-items: center; gap: 10px; margin-top: 36px; text-align: center; }
-.looks { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-bottom: 6px; }
-.swatch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1.5px solid var(--line);
-  border-radius: 999px;
-  cursor: pointer;
-}
-.swatch.on { border-color: var(--ink); }
-.chips { display: inline-flex; }
-.chips span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--surface); }
-.chips span + span { margin-left: -5px; }
-
 /* ---------- toast ---------- */
 
 #toast {

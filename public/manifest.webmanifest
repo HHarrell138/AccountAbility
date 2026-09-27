@@ -4,8 +4,8 @@
   "description": "Goals you keep because someone's counting on you.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f3f1f6",
-  "theme_color": "#1d1a2b",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]

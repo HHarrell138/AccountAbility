@@ -18,7 +18,7 @@ Most habit trackers are either solo (easy to lie to yourself) or social (perform
 | **Quitting is visible** | Dropping a goal shows up in the feed, and that week still counts. Ending a shared goal ends it for both of you. |
 | **Stakes** | "Loser buys coffee" is pinned at the top where you both see it. |
 | **Nudge / Cheer** | One tap to call your partner out or hype them up. |
-| **Your color, their color** | Each of you gets a color, so every shared goal reads as you vs. them at a glance. Three palettes: Sunset, Jungle, Ink. |
+| **Your color, their color** | Black and blue. You're blue and your partner is ice-white, so every shared goal reads as you vs. them at a glance. |
 
 Weekly targets ("4x per week") beat daily all-or-nothing streaks: they survive a travel day or a sick day but still keep you on the hook. A habit created mid-week gets a prorated target for that first week, so a new habit never starts as an automatic fail.
 
@@ -58,7 +58,7 @@ The `Dockerfile` also runs anywhere else (Railway, Fly.io, a VPS). Just mount a 
 src/server.js   HTTP server + JSON API (node:http, no framework)
 src/db.js       SQLite schema (node:sqlite)
 src/logic.js    Pure week/score/streak logic, the part worth unit testing
-public/         Installable web app (vanilla JS, mobile-first, light + dark)
+public/         Installable web app (vanilla JS, mobile-first, dark theme)
 test/           node:test suites
 ```
 
