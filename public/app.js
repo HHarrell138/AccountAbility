@@ -732,6 +732,7 @@
         ${subline(h, w, person)}
         ${tracked(h) ? amountRow(h) : ''}
         ${schedRow(h)}
+        ${h.links?.length ? `<div class="row-sched linked">${uiIcon('pact')}<span>Also counts in ${esc(listNames(h.links))}</span></div>` : ''}
         ${personal !== undefined ? numberRow(h, personal) : ''}
         ${missOpen ? missPanel(h) : ''}
       </div>`;
@@ -1237,6 +1238,9 @@
     await refresh();
   }
 
+  const listNames = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+  const alsoIn = (res) => (res.also?.length ? ` Also in ${listNames(res.also)}.` : '');
+
   async function addAmount(habitId, delta) {
     const h = state.dash.habits.find((x) => x.id === habitId);
     const res = await api('POST', '/api/amounts', { habit_id: habitId, delta, today: localToday() });
@@ -1245,7 +1249,7 @@
     const total = weekly(h)
       ? `${fmtAmount(res.total, '')} / ${fmtAmount(weekTarget(h), h.unit)} this week`
       : `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}`;
-    toast(res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`, {
+    toast((res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`) + alsoIn(res), {
       label: 'Undo',
       run: async () => {
         await api('POST', '/api/amounts', { habit_id: habitId, delta: -delta, today: localToday() });
@@ -1255,10 +1259,10 @@
   }
 
   async function logDone(habitId, day) {
-    await api('POST', '/api/checkins', { habit_id: habitId, day, status: 'done', today: localToday() });
+    const res = await api('POST', '/api/checkins', { habit_id: habitId, day, status: 'done', today: localToday() });
     state.panel = null;
     await refresh();
-    toast(day === state.dash.today ? 'Done. Logged.' : 'Logged for yesterday, marked late.', {
+    toast((day === state.dash.today ? 'Done. Logged.' : 'Logged for yesterday, marked late.') + alsoIn(res), {
       label: 'Undo',
       run: async () => {
         await api('POST', '/api/checkins/undo', { habit_id: habitId, day, today: localToday() });
@@ -1370,9 +1374,9 @@
       await addAmount(Number(f.dataset.habit), n);
     },
     async miss(f) {
-      await api('POST', '/api/checkins', { habit_id: Number(f.dataset.habit), status: 'missed', note: f.note.value, today: localToday() });
+      const res = await api('POST', '/api/checkins', { habit_id: Number(f.dataset.habit), status: 'missed', note: f.note.value, today: localToday() });
       state.panel = null;
-      toast('Logged. Owning it counts.');
+      toast('Logged. Owning it counts.' + alsoIn(res));
       await refresh();
     },
   };

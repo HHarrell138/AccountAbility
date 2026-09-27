@@ -169,6 +169,35 @@ function createApp({ dbFile = ':memory:' } = {}) {
     return h;
   }
 
+  // The same goal in your other pacts: log it once and it counts everywhere.
+  // Amount goals match on what's counted (water in oz, run in miles a week),
+  // whatever each pact's target. Wake-up matches on its own: you wake once a
+  // day. Anything else has to have the same name, so "Read 10 pages" never
+  // ticks off "Read 20 pages".
+  function linkKey(h) {
+    if (h.daily_amount > 0) return `amount|${h.icon}|${h.unit}|${h.amount_period}`;
+    if (h.icon === 'wake') return 'wake';
+    return `title|${h.icon}|${h.title.trim().toLowerCase()}`;
+  }
+
+  // One linked goal per other pact you're in (never two in the same pact).
+  function linkedHabits(h) {
+    const key = linkKey(h);
+    const seen = new Set([h.partnership_id]);
+    return q(
+      `SELECT h.* FROM habits h JOIN memberships m ON m.partnership_id = h.partnership_id AND m.user_id = h.user_id
+       WHERE h.user_id = ? AND h.archived_day IS NULL AND h.partnership_id != ? ORDER BY h.partnership_id, h.id`
+    )
+      .all(h.user_id, h.partnership_id)
+      .filter((x) => {
+        if (seen.has(x.partnership_id) || linkKey(x) !== key) return false;
+        seen.add(x.partnership_id);
+        return true;
+      });
+  }
+
+  const pactName = (id) => q('SELECT name FROM partnerships WHERE id = ?').get(id).name;
+
   function memberIds(partnershipId) {
     return q('SELECT user_id FROM memberships WHERE partnership_id = ? ORDER BY joined_at, user_id')
       .all(partnershipId)
@@ -346,7 +375,9 @@ function createApp({ dbFile = ':memory:' } = {}) {
       me: user.id,
       today,
       members,
-      habits: habits.filter((h) => !h.archived_day || h.archived_day > thisWeek),
+      habits: habits
+        .filter((h) => !h.archived_day || h.archived_day > thisWeek)
+        .map((h) => (h.user_id === user.id && !h.archived_day ? { ...h, links: linkedHabits(h).map((x) => pactName(x.partnership_id)) } : h)),
       checkins: checkins.filter((c) => c.day >= recentFrom),
       amounts: q(
         `SELECT a.habit_id, a.day, a.amount FROM amounts a JOIN habits h ON h.id = a.habit_id
@@ -565,25 +596,40 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const late = day !== today ? 1 : 0;
 
     return tx(() => {
-      const checkin = q(
-        `INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT (habit_id, day) DO UPDATE SET status = excluded.status, note = excluded.note, late = excluded.late
-         RETURNING id, habit_id, user_id, day, status, note, late`
-      ).get(h.id, user.id, day, status, note, late);
-      // Replace, don't stack, the feed entry when someone flips a check-in.
-      q('DELETE FROM events WHERE checkin_id = ?').run(checkin.id);
-      addEvent({
-        partnership_id: h.partnership_id,
-        actor_id: user.id,
-        habit_id: h.id,
-        checkin_id: checkin.id,
-        kind: late ? `${status}_late` : status,
-        message: note,
-        day,
-      });
-      return { checkin };
+      const checkin = writeCheckin(h, day, status, note, late);
+      // Same goal in your other pacts. Done counts there too unless it's
+      // already done; a miss only fills a day that has nothing logged.
+      const also = [];
+      for (const x of linkedHabits(h)) {
+        if (day < x.created_day) continue;
+        const c = q('SELECT status FROM checkins WHERE habit_id = ? AND day = ?').get(x.id, day);
+        if (status === 'done' ? c?.status === 'done' : c) continue;
+        writeCheckin(x, day, status, note, late);
+        also.push(pactName(x.partnership_id));
+      }
+      return { checkin, also };
     });
   });
+
+  function writeCheckin(h, day, status, note, late) {
+    const checkin = q(
+      `INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (habit_id, day) DO UPDATE SET status = excluded.status, note = excluded.note, late = excluded.late
+       RETURNING id, habit_id, user_id, day, status, note, late`
+    ).get(h.id, h.user_id, day, status, note, late);
+    // Replace, don't stack, the feed entry when someone flips a check-in.
+    q('DELETE FROM events WHERE checkin_id = ?').run(checkin.id);
+    addEvent({
+      partnership_id: h.partnership_id,
+      actor_id: h.user_id,
+      habit_id: h.id,
+      checkin_id: checkin.id,
+      kind: late ? `${status}_late` : status,
+      message: note,
+      day,
+    });
+    return checkin;
+  }
 
   // Undo an accidental Done. Only Done: a logged miss (and its reason) stays.
   // Log as you go: add (or, with a negative delta, take back) an amount for
@@ -600,47 +646,60 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const delta = Number(body.delta);
     if (!Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 100000) fail(400, 'Enter an amount');
 
+    const late = day !== today ? 1 : 0;
     return tx(() => {
-      const prev = q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(h.id, day)?.amount || 0;
-      const amount = Math.max(0, round2(prev + delta));
-      q(
-        `INSERT INTO amounts (habit_id, day, amount) VALUES (?, ?, ?)
-         ON CONFLICT (habit_id, day) DO UPDATE SET amount = excluded.amount`
-      ).run(h.id, day, amount);
-      // What counts toward the goal: today's amount, or the week's total.
-      let total = amount;
-      let target = h.daily_amount;
-      let c = q('SELECT * FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day);
-      if (h.amount_period === 'week') {
-        const ws = L.weekStart(day);
-        const we = L.addDays(ws, 6);
-        total = round2(q('SELECT COALESCE(SUM(amount), 0) AS t FROM amounts WHERE habit_id = ? AND day BETWEEN ? AND ?').get(h.id, ws, we).t);
-        target = L.weeklyAmountTarget(h, ws);
-        c = q(`SELECT * FROM checkins WHERE habit_id = ? AND day BETWEEN ? AND ? AND status = 'done'`).get(h.id, ws, we) || c;
+      const result = applyAmount(h, day, delta, late);
+      // The same amount goes into the same goal in your other pacts, each
+      // counted against its own target.
+      const also = [];
+      for (const x of linkedHabits(h)) {
+        if (day < x.created_day) continue;
+        applyAmount(x, day, delta, late);
+        also.push(pactName(x.partnership_id));
       }
-      const late = day !== today ? 1 : 0;
-      if (total >= target && c?.status !== 'done') {
-        const checkin = q(
-          `INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, 'done', '', ?)
-           ON CONFLICT (habit_id, day) DO UPDATE SET status = 'done', note = '', late = excluded.late
-           RETURNING id`
-        ).get(h.id, user.id, day, late);
-        q('DELETE FROM events WHERE checkin_id = ?').run(checkin.id);
-        addEvent({
-          partnership_id: h.partnership_id,
-          actor_id: user.id,
-          habit_id: h.id,
-          checkin_id: checkin.id,
-          kind: late ? 'done_late' : 'done',
-          message: `${total} ${h.unit}${h.amount_period === 'week' ? ' this week' : ''}`,
-          day,
-        });
-      } else if (total < target && c?.status === 'done') {
-        q('DELETE FROM checkins WHERE id = ?').run(c.id);
-      }
-      return { amount, total, done: total >= target };
+      return { ...result, also };
     });
   });
+
+  function applyAmount(h, day, delta, late) {
+    const prev = q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(h.id, day)?.amount || 0;
+    const amount = Math.max(0, round2(prev + delta));
+    q(
+      `INSERT INTO amounts (habit_id, day, amount) VALUES (?, ?, ?)
+       ON CONFLICT (habit_id, day) DO UPDATE SET amount = excluded.amount`
+    ).run(h.id, day, amount);
+    // What counts toward the goal: today's amount, or the week's total.
+    let total = amount;
+    let target = h.daily_amount;
+    let c = q('SELECT * FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day);
+    if (h.amount_period === 'week') {
+      const ws = L.weekStart(day);
+      const we = L.addDays(ws, 6);
+      total = round2(q('SELECT COALESCE(SUM(amount), 0) AS t FROM amounts WHERE habit_id = ? AND day BETWEEN ? AND ?').get(h.id, ws, we).t);
+      target = L.weeklyAmountTarget(h, ws);
+      c = q(`SELECT * FROM checkins WHERE habit_id = ? AND day BETWEEN ? AND ? AND status = 'done'`).get(h.id, ws, we) || c;
+    }
+    if (total >= target && c?.status !== 'done') {
+      const checkin = q(
+        `INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, 'done', '', ?)
+         ON CONFLICT (habit_id, day) DO UPDATE SET status = 'done', note = '', late = excluded.late
+         RETURNING id`
+      ).get(h.id, h.user_id, day, late);
+      q('DELETE FROM events WHERE checkin_id = ?').run(checkin.id);
+      addEvent({
+        partnership_id: h.partnership_id,
+        actor_id: h.user_id,
+        habit_id: h.id,
+        checkin_id: checkin.id,
+        kind: late ? 'done_late' : 'done',
+        message: `${total} ${h.unit}${h.amount_period === 'week' ? ' this week' : ''}`,
+        day,
+      });
+    } else if (total < target && c?.status === 'done') {
+      q('DELETE FROM checkins WHERE id = ?').run(c.id);
+    }
+    return { amount, total, done: total >= target };
+  }
 
   route('POST', '/api/checkins/undo', ({ user, body }) => {
     const h = ownHabit(int(body.habit_id, 'habit_id', 1, Number.MAX_SAFE_INTEGER), user.id);
@@ -650,8 +709,12 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const c = q('SELECT * FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day);
     if (!c) fail(404, 'Nothing to undo');
     if (c.status !== 'done') fail(400, 'A logged miss stays. Log Done instead if you made it up.');
-    q('DELETE FROM checkins WHERE id = ?').run(c.id); // its feed entry goes with it
-    return { ok: true };
+    return tx(() => {
+      q('DELETE FROM checkins WHERE id = ?').run(c.id); // its feed entry goes with it
+      // Undo it in your other pacts too, where it was done.
+      for (const x of linkedHabits(h)) q(`DELETE FROM checkins WHERE habit_id = ? AND day = ? AND status = 'done'`).run(x.id, day);
+      return { ok: true };
+    });
   });
 
   route('POST', '/api/partnerships/:id/nudges', ({ user, params, body }) => {

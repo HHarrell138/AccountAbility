@@ -330,23 +330,23 @@ test('log as you go: + adds up, hitting the amount counts as done, taking back u
   assert.equal(run.daily_amount, 3);
   const add = (delta, who = a) => who('POST', '/api/amounts', { habit_id: run.id, delta, today });
 
-  assert.deepEqual((await add(1)).data, { amount: 1, total: 1, done: false });
-  assert.deepEqual((await add(1.4)).data, { amount: 2.4, total: 2.4, done: false });
+  assert.deepEqual((await add(1)).data, { amount: 1, total: 1, done: false, also: [] });
+  assert.deepEqual((await add(1.4)).data, { amount: 2.4, total: 2.4, done: false, also: [] });
   let dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.equal(dash.amounts.find((x) => x.habit_id === run.id).amount, 2.4); // partner sees the running total
   assert.ok(!dash.checkins.some((c) => c.habit_id === run.id));
 
-  assert.deepEqual((await add(1)).data, { amount: 3.4, total: 3.4, done: true });
+  assert.deepEqual((await add(1)).data, { amount: 3.4, total: 3.4, done: true, also: [] });
   dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.equal(dash.checkins.find((c) => c.habit_id === run.id).status, 'done');
   assert.equal(dash.events.filter((e) => e.kind === 'done' && e.habit_id === run.id).length, 1);
   assert.equal(dash.events[0].message, '3.4 mi');
 
   // Taking back below the amount removes the Done; never below zero.
-  assert.deepEqual((await add(-1)).data, { amount: 2.4, total: 2.4, done: false });
+  assert.deepEqual((await add(-1)).data, { amount: 2.4, total: 2.4, done: false, also: [] });
   dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.ok(!dash.checkins.some((c) => c.habit_id === run.id));
-  assert.deepEqual((await add(-10)).data, { amount: 0, total: 0, done: false });
+  assert.deepEqual((await add(-10)).data, { amount: 0, total: 0, done: false, also: [] });
 
   assert.equal((await add(1, b)).status, 404); // not King's goal
   const plain = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Read', target_per_week: 3, today })).data.habit;
@@ -362,7 +362,7 @@ test('log as you go: + adds up, hitting the amount counts as done, taking back u
   assert.equal((await a('PATCH', `/api/habits/${plain.id}`, { step: 1 })).status, 400);
   const protein = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Eat 150g of protein', icon: 'protein', target_per_week: 7, daily_amount: 150, unit: 'g', step: 0, today })).data.habit;
   assert.equal(protein.step, 0);
-  assert.deepEqual((await a('POST', '/api/amounts', { habit_id: protein.id, delta: 42, today })).data, { amount: 42, total: 42, done: false });
+  assert.deepEqual((await a('POST', '/api/amounts', { habit_id: protein.id, delta: 42, today })).data, { amount: 42, total: 42, done: false, also: [] });
 
   // Shared goals carry the amount to both of you.
   const g = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Eat 150g of protein', icon: 'protein', target_per_week: 7, daily_amount: 150, unit: 'g', step: 10, today })).data.goal;
@@ -481,4 +481,67 @@ test('order: each person sets their own goal order', async (t) => {
   assert.deepEqual([pos(pray), pos(read), pos(kings)], [1, 2, 0]);
   assert.equal((await a('POST', `/api/partnerships/${pid}/order`, { habit_ids: 'nope' })).status, 400);
   assert.equal((await a('POST', `/api/partnerships/${pid}/order`, { habit_ids: ['x'] })).status, 400);
+});
+
+test('linked goals: log once, it counts in every pact with the same goal', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  const cash = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
+  await cash('POST', '/api/signup', { name: 'Cash', username: 'cash', password: 'password123' });
+  const withKing = (await hank('POST', '/api/partnerships', { name: 'Hank & King', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: withKing.invite_code });
+  const withCash = (await hank('POST', '/api/partnerships', { name: 'Hank & Cash', today })).data.partnership;
+  await cash('POST', '/api/partnerships/join', { code: withCash.invite_code });
+  const hankId = (await hank('GET', '/api/me')).data.user.id;
+
+  const shared = async (pact, partner, goal) => {
+    const g = (await hank('POST', '/api/goals', { partnership_id: pact.id, today, ...goal })).data.goal;
+    await partner('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+    const dash = (await hank('GET', `/api/partnerships/${pact.id}/dashboard?today=${today}`)).data;
+    return dash.habits.find((h) => h.goal_id === g.id && h.user_id === hankId);
+  };
+  const side = async (pact, goal) => (await hank('POST', '/api/habits', { partnership_id: pact.id, today, ...goal })).data.habit;
+  const dashFor = async (pact) => (await hank('GET', `/api/partnerships/${pact.id}/dashboard?today=${today}`)).data;
+  const doneIn = async (pact, id) => (await dashFor(pact)).checkins.some((c) => c.habit_id === id && c.day === today && c.status === 'done');
+
+  // Water: a gallon with King, half a gallon with Cash. Same ounces, own targets.
+  const waterK = await shared(withKing, king, { title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 8 });
+  const waterC = await side(withCash, { title: 'Drink 0.5 gallons of water', icon: 'water', target_per_week: 7, daily_amount: 64, unit: 'oz', step: 8 });
+  assert.deepEqual((await dashFor(withKing)).habits.find((h) => h.id === waterK.id).links, ['Hank & Cash']);
+  const res = (await hank('POST', '/api/amounts', { habit_id: waterK.id, delta: 64, today })).data;
+  assert.deepEqual(res, { amount: 64, total: 64, done: false, also: ['Hank & Cash'] });
+  assert.equal((await dashFor(withCash)).amounts.find((a) => a.habit_id === waterC.id).amount, 64);
+  assert.equal(await doneIn(withCash, waterC.id), true); // Cash's half gallon is hit
+  assert.equal(await doneIn(withKing, waterK.id), false); // King's gallon isn't yet
+  // Cash sees it in his feed.
+  const cashFeed = (await cash('GET', `/api/partnerships/${withCash.id}/dashboard?today=${today}`)).data.events;
+  assert.equal(cashFeed[0].kind, 'done');
+  assert.equal(cashFeed[0].actor_id, hankId);
+
+  // Work out in both: done and undo carry over.
+  const liftK = await shared(withKing, king, { title: 'Work out', icon: 'workout', target_per_week: 4 });
+  const liftC = await shared(withCash, cash, { title: 'Work out', icon: 'workout', target_per_week: 3 });
+  assert.deepEqual((await hank('POST', '/api/checkins', { habit_id: liftC.id, status: 'done', today })).data.also, ['Hank & King']);
+  assert.equal(await doneIn(withKing, liftK.id), true);
+  assert.equal((await hank('POST', '/api/checkins/undo', { habit_id: liftK.id, today })).status, 200);
+  assert.equal(await doneIn(withCash, liftC.id), false);
+
+  // Different numbers in the name: not the same goal.
+  const read20 = await side(withKing, { title: 'Read 20 pages', icon: 'read', target_per_week: 5 });
+  const read10 = await side(withCash, { title: 'Read 10 pages', icon: 'read', target_per_week: 5 });
+  assert.deepEqual((await hank('POST', '/api/checkins', { habit_id: read10.id, status: 'done', today })).data.also, []);
+  assert.equal(await doneIn(withKing, read20.id), false);
+
+  // A miss carries over to a day with nothing logged.
+  await hank('POST', '/api/checkins', { habit_id: liftK.id, status: 'missed', note: 'Sick', today });
+  assert.equal((await dashFor(withCash)).checkins.find((c) => c.habit_id === liftC.id && c.day === today).status, 'missed');
+  // King's partner-only view doesn't get link info about Hank's other pacts.
+  assert.equal((await king('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data.habits.find((h) => h.id === waterK.id).links, undefined);
 });
