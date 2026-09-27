@@ -284,10 +284,10 @@
 
       <section class="block">
         <h2 class="section-title">Shared goals</h2>
+        ${addForm('shared', active.length === 0 && proposals.length === 0, partnerName)}
         ${active.length
           ? active.map(goalCard).join('')
           : `<p class="empty">${proposals.length ? 'Nothing is agreed yet.' : 'Agree on your first goal.'} You're both held to shared goals, and they're what your streak counts.</p>`}
-        ${addForm('shared', active.length === 0 && proposals.length === 0, partnerName)}
       </section>
 
       <section class="block">
