@@ -47,7 +47,7 @@
     { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'} a week`, amount: 15, min: 1, unit: 'miles a week', track: { unit: 'mi', step: 1, period: 'week' } },
     { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7, track: { unit: 'oz', step: 8, per: 128 } }, // goal set in gallons, logged in ounces
     { key: 'protein', icon: 'protein', label: 'Protein', personal: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7, track: { unit: 'g', step: 0 } }, // 0: type the grams each time
-    { key: 'calories', icon: 'calories', label: 'Hit calories', personal: 'Calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7, track: { unit: 'cal', step: 100 } },
+    { key: 'calories', icon: 'calories', label: 'Hit calories', personal: 'Calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7, track: { unit: 'cal', step: 0 } }, // type the calories each time, like protein
     { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', personal: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, min: 500, unit: 'calories', days: 6 },
     { key: 'workout', icon: 'workout', label: 'Workout', title: () => 'Work out', days: 4 },
     { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, min: 500, unit: 'steps', days: 5 },
@@ -861,10 +861,7 @@
                ${shared && preset.personal ? `<p class="small muted">That's your number. ${partnerName} sets their own when they agree.</p>` : ''}
                ${preset.track
                  ? preset.track.step
-                   ? `<label for="${kind}-step">Each tap of + adds <span class="muted">(${esc(UNIT_NAMES[preset.track.unit])})</span>
-                        <input id="${kind}-step" name="step" type="number" inputmode="decimal" min="0.01" step="any" value="${preset.track.step}" required>
-                      </label>
-                      <p class="small muted">Log it as you go. Hitting the amount counts as done. You can change the tap size later.</p>`
+                   ? `<p class="small muted">Log it as you go: each tap of + adds ${esc(fmtAmount(preset.track.step, preset.track.unit))}, and Add… lets you type more. Hitting the amount counts as done. You can change the tap size after.</p>`
                    : `<p class="small muted">Log it as you go: tap + and type how many ${esc(UNIT_NAMES[preset.track.unit])} each time. Hitting the amount counts as done.</p>`
                  : ''}`
             : `<p class="preview-title">${iconSvg(preset.icon)}<span>${esc(preset.title())}</span></p>`;
@@ -1271,7 +1268,7 @@
           ? {
               daily_amount: Number(f.amount.value) * (preset.track.per || 1),
               unit: preset.track.unit,
-              step: f.step ? Number(f.step.value) : 0,
+              step: preset.track.step, // change it later with Tap size
               amount_period: preset.track.period || 'day',
             }
           : {}),
