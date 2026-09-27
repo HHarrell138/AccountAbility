@@ -267,6 +267,7 @@
         <div class="pair">${d.members.map(avatar).join('')}</div>
       </header>
 
+      ${progressCard()}
       ${waiting ? inviteCard() : ''}
       ${streakCard()}
       ${proposals.length ? proposalsCard(proposals) : ''}
@@ -322,6 +323,54 @@
         <div class="code">${esc(code)}</div>
         <button class="btn wide" data-action="share-code" data-code="${esc(code)}">Share invite</button>
         ${window.AA_DEMO ? `<button class="btn primary wide" data-action="demo-join">Preview: have your partner join</button>` : ''}
+      </section>`;
+  }
+
+  // Your week across every goal you have, shared and side.
+  function progressCard() {
+    const d = state.dash;
+    const scored = new Map((d.week.members[d.me]?.habits || []).map((x) => [x.habit_id, x]));
+    const goals = d.habits
+      .filter((h) => isMe(h.user_id) && scored.has(h.id))
+      .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1)); // shared first
+    let done = 0;
+    let target = 0;
+    const rows = goals
+      .map((h) => {
+        const sc = scored.get(h.id);
+        const got = Math.min(sc.done, sc.target); // extra days don't cover another goal
+        done += got;
+        target += sc.target;
+        const pct = Math.round((got / sc.target) * 100);
+        return `
+          <button type="button" class="goal-bar ${sc.met ? 'met' : ''}" data-action="jump" data-target="${h.goal_id ? `g-${h.goal_id}` : `h-${h.id}`}">
+            <span class="icon-tile sm">${iconSvg(h.icon)}</span>
+            <span class="goal-bar-body">
+              <span class="goal-bar-top">
+                <span class="goal-bar-name">${esc(h.title)}</span>
+                ${h.goal_id ? '<span class="tag">shared</span>' : ''}
+                <span class="goal-bar-num">${sc.done}/${sc.target}</span>
+              </span>
+              <span class="bar you"><span style="width:${pct}%"></span></span>
+            </span>
+          </button>`;
+      })
+      .join('');
+    const pct = target ? Math.round((done / target) * 100) : 0;
+    const onTrack = goals.filter((h) => scored.get(h.id).met).length;
+    return `
+      <section class="card progress-card" aria-label="Your progress this week">
+        <div class="progress-head">
+          <div>
+            <p class="eyebrow">Your week</p>
+            <div class="progress-num">${pct}<span>%</span></div>
+          </div>
+          <p class="progress-meta">${target
+            ? `<strong>${done} of ${target}</strong> check-ins<br>${onTrack} of ${goals.length} goal${goals.length === 1 ? '' : 's'} hit`
+            : 'No goals yet'}</p>
+        </div>
+        <div class="bar you big" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>
+        ${rows ? `<div class="goal-bars">${rows}</div>` : '<p class="small muted">Agree on a shared goal or add a side goal below, and your week shows up here.</p>'}
       </section>`;
   }
 
@@ -563,7 +612,7 @@
       .join('');
 
     return `
-      <article class="card goal ${open ? 'is-open' : ''}">
+      <article class="card goal ${open ? 'is-open' : ''}" id="g-${g.id}">
         <div class="goal-hit" data-action="toggle-goal" data-goal="${g.id}">
           ${cardHead(g.icon, g.title, `Both of you · ${g.target_per_week}x a week`, g.why)}
           ${mine ? proratedNote(mine) : ''}
@@ -584,7 +633,7 @@
     const person = d.members.find((m) => m.id === h.user_id);
     const mine = isMe(h.user_id);
     return `
-      <article class="card side">
+      <article class="card side" id="h-${h.id}">
         ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`} · ${h.target_per_week}x a week`, h.why)}
         ${proratedNote(h)}
         <div class="tracker">
@@ -804,6 +853,12 @@
       });
       toast(el.dataset.kind === 'cheer' ? 'Cheer sent.' : 'Nudge sent.');
       await refresh();
+    },
+    jump(el) {
+      const target = document.getElementById(el.dataset.target);
+      if (!target) return;
+      const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
     },
     'toggle-goal'(el) {
       const id = Number(el.dataset.goal);
