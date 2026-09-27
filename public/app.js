@@ -68,6 +68,7 @@
     addOpen: null, // which goal picker is open: 'shared' | 'side' | 'closed' | null
     preset: null, // selected preset key in the open picker
     expanded: new Set(), // shared goals opened to compare with your partner
+    activityOpen: false, // the Activity feed dropdown
   };
 
   // ---------- utils ----------
@@ -292,10 +293,10 @@
         })
         .join('')}
 
-      <section class="block">
-        <h2 class="section-title">Activity ${unread ? `<span class="badge">${unread} new</span>` : ''}</h2>
+      <details class="block activity-drop"${state.activityOpen ? ' open' : ''}>
+        <summary class="section-title">Activity ${unread ? `<span class="badge">${unread} new</span>` : ''}${uiIcon('chevron', 'chev')}</summary>
         <ol class="feed">${d.events.filter((e) => e.kind !== 'stakes').map(feedItem).join('') || '<li class="muted">Nothing yet.</li>'}</ol>
-      </section>
+      </details>
 
       <footer class="foot">
         ${window.AA_DEMO
@@ -1356,6 +1357,10 @@
   app.addEventListener(
     'toggle',
     (ev) => {
+      if (ev.target.matches && ev.target.matches('details.activity-drop')) {
+        state.activityOpen = ev.target.open;
+        return;
+      }
       if (!(ev.target.matches && ev.target.matches('details.add'))) return;
       const kind = ev.target.dataset.kind;
       if (ev.target.open && state.addOpen !== kind) {
