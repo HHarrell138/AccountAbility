@@ -68,6 +68,7 @@
     addOpen: null, // which goal picker is open: 'shared' | 'side' | 'closed' | null
     preset: null, // selected preset key in the open picker
     expanded: new Set(), // shared goals opened to compare with your partner
+    historyOpen: false, // streak History dropdown
   };
 
   // ---------- utils ----------
@@ -98,6 +99,10 @@
     if (s < 3600) return `${Math.floor(s / 60)}m`;
     if (s < 86400) return `${Math.floor(s / 3600)}h`;
     return `${Math.floor(s / 86400)}d`;
+  }
+
+  function shortDay(day) {
+    return new Date(day + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
 
   function prettyDay(day) {
@@ -445,14 +450,23 @@
           .join('')
       : '';
 
-    const weeksShown = (s.history || []).slice(-7);
-    const history = weeksShown.length
-      ? `<div class="history" aria-label="Recent weeks">
-          ${weeksShown
-            .map((w) => `<span class="wk ${w.tier || 'none'}" title="Week of ${esc(w.start)}: ${w.pct == null ? 'no shared goals' : `${Math.round(w.pct * 100)}%`}"></span>`)
-            .join('')}
-          <span class="wk now ${tier || 'none'}" title="This week"></span>
-        </div>`
+    // Past weeks, newest first, tucked away until asked for.
+    const past = (s.history || []).slice().reverse();
+    const history = past.length
+      ? `<details class="history-drop"${state.historyOpen ? ' open' : ''}>
+          <summary>History ${uiIcon('chevron', 'chev')}</summary>
+          <ol class="history-list">
+            ${past
+              .map((w) => `
+                <li>
+                  <span class="wk ${w.tier || 'none'}"></span>
+                  <span>Week of ${esc(shortDay(w.start))}</span>
+                  <span class="muted">${w.pct == null ? 'no shared goals' : `${Math.round(w.pct * 100)}%`}</span>
+                  <span class="history-tier ${w.tier || 'none'}">${w.tier ? TIER_NAMES[w.tier] : w.pct == null ? '' : 'Broke'}</span>
+                </li>`)
+              .join('')}
+          </ol>
+        </details>`
       : '';
 
     return `
@@ -463,11 +477,11 @@
             <div class="streak-num">${s.weeks}<span> week${s.weeks === 1 ? '' : 's'}</span></div>
             <div class="streak-tier">${tier ? `${TIER_NAMES[tier]} streak` : 'No streak yet'}</div>
           </div>
-          ${history}
         </div>
         <p class="small muted streak-next">${next}</p>
         ${bars ? `<div class="bars"><p class="eyebrow">This week, shared goals hit</p>${bars}</div>` : ''}
         <p class="legend"><span class="key blue"></span>70%+ <span class="key green"></span>100% <span class="key gold"></span>3 perfect weeks</p>
+        ${history}
       </section>`;
   }
 
@@ -1356,6 +1370,10 @@
   app.addEventListener(
     'toggle',
     (ev) => {
+      if (ev.target.matches && ev.target.matches('details.history-drop')) {
+        state.historyOpen = ev.target.open;
+        return;
+      }
       if (!(ev.target.matches && ev.target.matches('details.add'))) return;
       const kind = ev.target.dataset.kind;
       if (ev.target.open && state.addOpen !== kind) {
