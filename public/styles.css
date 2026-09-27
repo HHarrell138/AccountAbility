@@ -369,7 +369,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 }
 .icon-tile:has(.i-water) { --tile: var(--c-water-bg); --tint: var(--c-water); }
 .icon-tile:has(.i-protein) { --tile: var(--c-food-bg); --tint: var(--c-food); }
-.icon-tile:has(.i-calories), .icon-tile:has(.i-calorie-cap) { --tile: var(--c-fire-bg); --tint: var(--c-fire); }
+.icon-tile:has(.i-calories), .icon-tile:has(.i-calorie-cap), .icon-tile:has(.i-wake) { --tile: var(--c-fire-bg); --tint: var(--c-fire); }
 .icon-tile:has(.i-sleep), .icon-tile:has(.i-read) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
 .hicon { width: 26px; height: 26px; }
 
@@ -515,6 +515,9 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   border-radius: 16px;
   cursor: pointer;
 }
+.preset.wide { grid-column: 1 / -1; flex-direction: row; justify-content: center; padding: 8px; }
+.preset.wide .icon-tile { width: 32px; height: 32px; border-radius: 10px; }
+.preset.wide .icon-tile .hicon { width: 20px; height: 20px; }
 .preset.on { border-color: var(--you); background: var(--you-soft); }
 .preview-title { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; font: 700 1.05rem var(--font-display); }
 .preview-title .hicon { width: 22px; height: 22px; color: var(--muted); flex: 0 0 auto; }

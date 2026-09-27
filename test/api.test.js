@@ -54,6 +54,8 @@ test('two people make a pact and hold each other accountable', async (t) => {
   assert.equal(habit.icon, 'check');
   const water = await hank('POST', '/api/habits', { partnership_id: pid, title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, today });
   assert.equal(water.data.habit.icon, 'water');
+  const wake = await hank('POST', '/api/habits', { partnership_id: pid, title: 'Wake up by 6:00 AM', icon: 'wake', target_per_week: 5, today });
+  assert.equal(wake.data.habit.icon, 'wake');
   assert.equal((await hank('POST', '/api/habits', { partnership_id: pid, title: 'X', icon: '<script>', target_per_week: 7, today })).status, 400);
 
   // Jake can't check in on Hank's habit.

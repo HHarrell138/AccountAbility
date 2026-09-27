@@ -17,6 +17,7 @@
     steps: '<path d="M3 16V7.5h3.5L8 10l3-1.2 2 3 5.4 1.4A3.4 3.4 0 0 1 21 16.5V17H3z"/><path d="M3 20h18"/><path d="M9.3 11.6l1.2 1.2M11.8 10.8l1.2 1.2"/>',
     read: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
     sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+    wake: '<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2.5 1.5"/><path d="M4 6.5L7 4M20 6.5L17 4"/>',
   };
   const iconSvg = (key) =>
     `<svg class="hicon i-${esc(key)}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[key] || ICONS.check}</svg>`;
@@ -47,6 +48,7 @@
     { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, min: 500, unit: 'steps', days: 5 },
     { key: 'read', icon: 'read', label: 'Read', title: (n) => `Read ${n} pages`, amount: 20, min: 1, unit: 'pages', days: 5 },
     { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, min: 4, unit: 'hours', days: 5 },
+    { key: 'wake', icon: 'wake', label: 'Wake up', title: (t) => `Wake up by ${clockTime(t)}`, time: '06:00', days: 5 },
     { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
   ];
 
@@ -666,7 +668,7 @@
     const preset = PRESETS.find((p) => p.key === current);
     const tiles = PRESETS.map(
       (p) => `
-        <button type="button" class="preset ${p.key === current ? 'on' : ''}" data-action="pick-preset" data-kind="${kind}" data-preset="${p.key}" aria-pressed="${p.key === current}">
+        <button type="button" class="preset ${p.key === 'custom' ? 'wide' : ''} ${p.key === current ? 'on' : ''}" data-action="pick-preset" data-kind="${kind}" data-preset="${p.key}" aria-pressed="${p.key === current}">
           <span class="icon-tile">${iconSvg(p.icon)}</span>
           <span>${esc(p.label)}</span>
         </button>`
@@ -677,6 +679,11 @@
       const fields =
         preset.key === 'custom'
           ? `<label for="${kind}-title">Goal<input id="${kind}-title" name="title" maxlength="80" required placeholder="${shared ? 'No phone after 10pm' : 'Edit one video'}" data-autofocus></label>`
+          : preset.time
+            ? `<label for="${kind}-time">What time?
+                 <input id="${kind}-time" name="time" type="time" value="${preset.time}" required data-action="preset-amount">
+               </label>
+               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.time))}</span></p>`
           : preset.amount
             ? `<label for="${kind}-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
@@ -708,8 +715,16 @@
       </details>`;
   }
 
-  // Title for a preset + amount, with the number tidied (1.50 -> 1.5).
+  // "06:30" -> "6:30 AM"
+  function clockTime(hhmm) {
+    const [h, m] = String(hhmm).split(':').map(Number);
+    if (!Number.isInteger(h) || !Number.isInteger(m)) return '…';
+    return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  }
+
+  // Title for a preset + amount (or time), with numbers tidied (1.50 -> 1.5).
   function presetTitle(preset, raw) {
+    if (preset.time) return /^\d{2}:\d{2}/.test(raw) ? preset.title(raw) : null;
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return null;
     return preset.title(Math.round(n * 100) / 100);
@@ -812,9 +827,10 @@
       const preset = PRESETS.find((p) => p.key === f.dataset.preset);
       let title;
       if (preset.key === 'custom') title = f.title.value;
+      else if (preset.time) title = presetTitle(preset, f.time.value);
       else if (preset.amount) title = presetTitle(preset, f.amount.value);
       else title = preset.title();
-      if (!title) throw new Error(`Enter how many ${preset.unit}`);
+      if (!title) throw new Error(preset.time ? 'Pick a time' : `Enter how many ${preset.unit}`);
       const shared = f.dataset.kind === 'shared';
       await api('POST', shared ? '/api/goals' : '/api/habits', {
         partnership_id: state.pid,
