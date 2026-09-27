@@ -249,20 +249,11 @@
     const sideMine = d.habits.filter((h) => isMe(h.user_id) && !h.goal_id);
     const unread = d.events.filter((e) => e.id > d.last_seen_event_id && !isMe(e.actor_id)).length;
 
-    const myShared = d.habits.filter((h) => isMe(h.user_id) && h.goal_id);
-    const left = myShared.filter((h) => !d.checkins.some((c) => c.habit_id === h.id && c.day === d.today)).length;
-    const todayLine = !myShared.length
-      ? 'Agree on a goal to get started.'
-      : left
-        ? `${left} shared goal${left === 1 ? '' : 's'} left for you today.`
-        : 'You’ve checked in on every shared goal today.';
-
     return `
       <header class="top">
         <div>
           <p class="eyebrow">${esc(prettyDay(d.today))}</p>
           ${pactTitle()}
-          <p class="today-line">${todayLine}</p>
         </div>
         <div class="pair">${d.members.map(avatar).join('')}</div>
       </header>
@@ -326,51 +317,72 @@
       </section>`;
   }
 
-  // Your week across every goal you have, shared and side.
+  // Today across every goal you have, shared and side. Doubles as a
+  // checklist: each row has the same one-tap check as the goal cards.
+  // A goal whose weekly target is already hit doesn't count against today
+  // unless you do it anyway.
   function progressCard() {
     const d = state.dash;
     const scored = new Map((d.week.members[d.me]?.habits || []).map((x) => [x.habit_id, x]));
     const goals = d.habits
-      .filter((h) => isMe(h.user_id) && scored.has(h.id))
+      .filter((h) => isMe(h.user_id) && scored.has(h.id) && !h.archived_day)
       .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1)); // shared first
-    let done = 0;
-    let target = 0;
-    const rows = goals
-      .map((h) => {
-        const sc = scored.get(h.id);
-        const got = Math.min(sc.done, sc.target); // extra days don't cover another goal
-        done += got;
-        target += sc.target;
-        const pct = Math.round((got / sc.target) * 100);
+
+    const items = goals.map((h) => {
+      const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
+      const status = c ? c.status : scored.get(h.id).met ? 'rest' : 'todo';
+      return { h, status };
+    });
+    const due = items.filter((i) => i.status !== 'rest');
+    const done = due.filter((i) => i.status === 'done').length;
+    const missed = due.filter((i) => i.status === 'missed').length;
+    const left = due.length - done - missed;
+
+    let meta;
+    if (!goals.length) meta = 'No goals yet';
+    else if (!due.length) meta = 'Rest day. Every weekly target is already hit.';
+    else if (left === 0 && missed === 0) meta = '<strong>All done</strong> for today';
+    else meta = [left ? `<strong>${left} left</strong>` : '', missed ? `${missed} missed` : ''].filter(Boolean).join(' · ');
+
+    const segments = due
+      .map((i) => `<span class="seg ${i.status === 'done' ? 'done' : i.status === 'missed' ? 'missed' : ''}"></span>`)
+      .join('');
+
+    const rows = items
+      .map(({ h, status }) => {
+        let control;
+        if (status === 'done') {
+          control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
+        } else if (status === 'missed') {
+          control = `<span class="tick-mark missed" aria-label="Missed today">${uiIcon('x')}</span>`;
+        } else {
+          control = `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Mark ${esc(h.title)} done today">${uiIcon('done')}</button>`;
+        }
+        const note = status === 'rest' ? '<span class="today-note">week done</span>' : status === 'missed' ? '<span class="today-note bad">missed</span>' : '';
         return `
-          <button type="button" class="goal-bar ${sc.met ? 'met' : ''}" data-action="jump" data-target="${h.goal_id ? `g-${h.goal_id}` : `h-${h.id}`}">
-            <span class="icon-tile sm">${iconSvg(h.icon)}</span>
-            <span class="goal-bar-body">
-              <span class="goal-bar-top">
-                <span class="goal-bar-name">${esc(h.title)}</span>
-                ${h.goal_id ? '<span class="tag">shared</span>' : ''}
-                <span class="goal-bar-num">${sc.done}/${sc.target}</span>
-              </span>
-              <span class="bar you"><span style="width:${pct}%"></span></span>
-            </span>
-          </button>`;
+          <div class="today-row ${status}">
+            <button type="button" class="today-name" data-action="jump" data-target="${h.goal_id ? `g-${h.goal_id}` : `h-${h.id}`}">
+              <span class="icon-tile sm">${iconSvg(h.icon)}</span>
+              <span class="today-title">${esc(h.title)}</span>
+              ${h.goal_id ? '<span class="tag">shared</span>' : ''}
+              ${note}
+            </button>
+            ${control}
+          </div>`;
       })
       .join('');
-    const pct = target ? Math.round((done / target) * 100) : 0;
-    const onTrack = goals.filter((h) => scored.get(h.id).met).length;
+
     return `
-      <section class="card progress-card" aria-label="Your progress this week">
+      <section class="card progress-card" aria-label="Your progress today">
         <div class="progress-head">
           <div>
-            <p class="eyebrow">Your week</p>
-            <div class="progress-num">${pct}<span>%</span></div>
+            <p class="eyebrow">Today</p>
+            <div class="progress-num">${done}<span>/${due.length}</span></div>
           </div>
-          <p class="progress-meta">${target
-            ? `<strong>${done} of ${target}</strong> check-ins<br>${onTrack} of ${goals.length} goal${goals.length === 1 ? '' : 's'} hit`
-            : 'No goals yet'}</p>
+          <p class="progress-meta">${meta}</p>
         </div>
-        <div class="bar you big" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>
-        ${rows ? `<div class="goal-bars">${rows}</div>` : '<p class="small muted">Agree on a shared goal or add a side goal below, and your week shows up here.</p>'}
+        ${due.length ? `<div class="segments" role="img" aria-label="${done} of ${due.length} done today">${segments}</div>` : ''}
+        ${rows ? `<div class="today-list">${rows}</div>` : '<p class="small muted">Agree on a shared goal or add a side goal below, and your day shows up here.</p>'}
       </section>`;
   }
 
