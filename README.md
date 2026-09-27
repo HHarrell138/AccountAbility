@@ -16,7 +16,6 @@ Most habit trackers are either solo (easy to lie to yourself) or social (perform
 | **Shared pair streak** | The streak only grows in weeks where *both* of you hit *every shared goal*. If you slack, you break it for them too. |
 | **No rewriting history** | You can log today or yesterday, and yesterday is marked *late*. Nothing older. |
 | **Quitting is visible** | Dropping a goal shows up in the feed, and that week still counts. Ending a shared goal ends it for both of you. |
-| **Stakes** | "Loser buys coffee" is pinned at the top where you both see it. |
 | **Nudge / Cheer** | One tap to call your partner out or hype them up. |
 | **Your color, their color** | Black and blue. You're blue and your partner is ice-white, so every shared goal reads as you vs. them at a glance. |
 
@@ -67,7 +66,7 @@ The data model already supports groups: `partnerships.max_members` is 2 today. R
 ## Roadmap (in priority order)
 
 1. **Push notifications:** get a nudge, see your partner's miss, get an evening reminder if you haven't checked in. This is the single biggest retention lever, and the 30-second polling in the MVP is a stand-in.
-2. **Weekly review ritual:** a Sunday screen where both of you see the week and settle the stakes.
+2. **Weekly review ritual:** a Sunday screen where both of you look back on the week together.
 3. **Proof check-ins:** attach a photo for habits where "trust me" isn't enough.
 4. **Groups:** raise `max_members`, add a group view, and let a group streak work the same way as the pair streak.
 5. **Native wrapper (Capacitor/Expo)** once people are using it and App Store distribution matters.

@@ -31,10 +31,8 @@
     bell: '<path d="M6.5 16v-5a5.5 5.5 0 0 1 11 0v5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     chevron: '<path d="M6 9l6 6 6-6"/>',
-    pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
     flame: ICONS.calories,
     pact: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
-    lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
   };
   const uiIcon = (key, cls = '') =>
     `<svg class="ui-icon ${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${UI_ICONS[key]}</svg>`;
@@ -62,7 +60,6 @@
     panel: null, // { type: 'miss' | 'archive', habitId }
     addOpen: null, // which goal picker is open: 'shared' | 'side' | 'closed' | null
     preset: null, // selected preset key in the open picker
-    editStakes: false,
     expanded: new Set(), // shared goals opened to compare with your partner
   };
 
@@ -223,8 +220,6 @@
       <form class="card" data-form="create-pact">
         <h2 class="card-title">Start a pact</h2>
         <label for="p-name">Name it <span class="muted">(optional)</span><input id="p-name" name="name" maxlength="60" placeholder="Hank &amp; King"></label>
-        <label for="p-stakes">What's on the line? <span class="muted">(optional)</span>
-          <input id="p-stakes" name="stakes" maxlength="200" placeholder="Whoever misses their week buys dinner"></label>
         <button class="btn primary wide" type="submit">Create pact</button>
       </form>
       <form class="card" data-form="join-pact">
@@ -292,7 +287,7 @@
 
       <section class="block">
         <h2 class="section-title">Activity ${unread ? `<span class="badge">${unread} new</span>` : ''}</h2>
-        <ol class="feed">${d.events.map(feedItem).join('') || '<li class="muted">Nothing yet.</li>'}</ol>
+        <ol class="feed">${d.events.filter((e) => e.kind !== 'stakes').map(feedItem).join('') || '<li class="muted">Nothing yet.</li>'}</ol>
       </section>
 
       <footer class="foot">
@@ -422,19 +417,6 @@
         : `Last week ${d.members.filter((m) => !lw.members[m.id]?.met).map((m) => (isMe(m.id) ? 'you' : esc(m.name))).join(' and ')} came up short.`
       : '';
 
-    const stakes = state.editStakes
-      ? `<form class="stakes-form" data-form="stakes">
-           <label for="stakes-input">On the line
-             <input id="stakes-input" name="stakes" maxlength="200" value="${esc(d.partnership.stakes)}" placeholder="Loser buys dinner" data-autofocus>
-           </label>
-           <button class="btn small primary" type="submit">Save</button>
-         </form>`
-      : `<button class="stakes" data-action="edit-stakes">
-           ${uiIcon('lock')}
-           <span class="stakes-body"><span class="eyebrow">On the line</span><span class="stakes-text">${d.partnership.stakes ? esc(d.partnership.stakes) : 'Nothing yet. Tap to set stakes.'}</span></span>
-           ${uiIcon('pencil', 'faint')}
-         </button>`;
-
     return `
       <section class="card streak-card ${s.weeks > 0 ? 'lit' : ''}">
         <div class="streak">
@@ -449,7 +431,6 @@
           ${bars}
         </div>
         ${lastWeekLine ? `<p class="small">${lastWeekLine}</p>` : ''}
-        ${stakes}
       </section>`;
   }
 
@@ -831,7 +812,6 @@
       case 'goal_declined': text = `${who} passed on ${goal}.`; break;
       case 'goal_withdrawn': text = `${who} withdrew ${goal}.`; break;
       case 'goal_ended': text = `${who} ended the shared goal ${habit}.`; break;
-      case 'stakes': text = e.message ? `${who} set the stakes: <span class="quote">“${esc(e.message)}”</span>` : `${who} cleared the stakes.`; break;
       case 'nudge': text = `${who} nudged ${whom}${habit ? ` about ${habit}` : ''}.${note}`; break;
       case 'cheer': text = `${who} cheered ${whom}${habit ? ` on ${habit}` : ''}.${note}`; break;
       default: text = `${who}: ${esc(e.kind)}`;
@@ -889,19 +869,13 @@
       await boot();
     },
     async 'create-pact'(f) {
-      const { partnership } = await api('POST', '/api/partnerships', { name: f.name.value, stakes: f.stakes.value, today: localToday() });
+      const { partnership } = await api('POST', '/api/partnerships', { name: f.name.value, today: localToday() });
       await afterJoinOrCreate(partnership.id);
     },
     async 'join-pact'(f) {
       const { partnership } = await api('POST', '/api/partnerships/join', { code: f.code.value });
       await afterJoinOrCreate(partnership.id);
       toast("You're in. Agree on your first shared goal.");
-    },
-    async stakes(f) {
-      await api('PATCH', `/api/partnerships/${state.pid}`, { stakes: f.stakes.value });
-      state.editStakes = false;
-      toast('Stakes saved. Your partner will see it.');
-      await refresh();
     },
     async goal(f) {
       const preset = PRESETS.find((p) => p.key === f.dataset.preset);
@@ -983,10 +957,6 @@
     },
     'close-panel'() {
       state.panel = null;
-      render();
-    },
-    'edit-stakes'() {
-      state.editStakes = true;
       render();
     },
     'pick-preset'(el) {
@@ -1113,7 +1083,7 @@
 
   // Keep the partner's side fresh without clobbering anything you're typing.
   setInterval(() => {
-    if (document.hidden || !state.pid || state.panel || state.preset || state.editStakes) return;
+    if (document.hidden || !state.pid || state.panel || state.preset) return;
     const a = document.activeElement;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
     guarded(refresh);

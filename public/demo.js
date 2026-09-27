@@ -9,7 +9,7 @@
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v5';
+  const KEY = 'aa.demo.v6';
   const ME = 1;
   const KING = 2;
   const KING_USER = { id: KING, name: 'King', username: 'king' };
@@ -180,11 +180,10 @@
       if (db.partnership) fail(400, 'The preview holds one pact. Tap Reset to start over.');
       // Joining in the preview means joining a pact King already started.
       const today = localToday();
-      db.partnership = { id: 1, name: 'King & ' + db.me.name, stakes: 'Loser buys dinner', invite_code: code, max_members: 2, created_day: today };
+      db.partnership = { id: 1, name: 'King & ' + db.me.name, stakes: '', invite_code: code, max_members: 2, created_day: today };
       db.members = [KING];
       addEvent({ actor_id: KING, kind: 'created', message: db.partnership.name });
       addHabit(KING, KING_SIDE, today);
-      addEvent({ actor_id: KING, kind: 'stakes', message: db.partnership.stakes });
       propose(KING, KING_PROPOSAL);
       db.members.push(ME);
       addEvent({ actor_id: ME, kind: 'joined' });
@@ -349,10 +348,9 @@
     const today = localToday();
     db.me = { id: ME, name: 'Hank', username: 'hank' };
     db.loggedIn = true;
-    db.partnership = { id: 1, name: 'Hank & King', stakes: 'Loser buys dinner', invite_code: inviteCode(), max_members: 2, created_day: today };
+    db.partnership = { id: 1, name: 'Hank & King', stakes: '', invite_code: inviteCode(), max_members: 2, created_day: today };
     db.members = [ME];
     addEvent({ actor_id: ME, kind: 'created', message: db.partnership.name });
-    addEvent({ actor_id: ME, kind: 'stakes', message: db.partnership.stakes });
     kingJoins(today);
     db.lastSeen = 0;
     save();
