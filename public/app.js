@@ -211,7 +211,7 @@
       <ul class="pitch">
         <li>${uiIcon('pact')}<span><strong>Just you and one person.</strong> No followers, no feed of strangers.</span></li>
         <li>${uiIcon('done')}<span><strong>Goals you agree on.</strong> You both say yes, then you're compared side by side.</span></li>
-        <li>${uiIcon('flame')}<span><strong>One shared streak.</strong> It only grows if you <em>both</em> show up.</span></li>
+        <li>${uiIcon('flame')}<span><strong>One shared streak.</strong> Blue at 70%, green at 100%, gold after three perfect weeks. It counts the lower of your two weeks.</span></li>
       </ul>`;
   }
 
@@ -411,47 +411,66 @@
       </section>`;
   }
 
+  const TIER_NAMES = { gold: 'Gold', green: 'Green', blue: 'Blue' };
+
+  // The pair streak: its color (blue / green / gold), how far each of you is
+  // this week against the 70% and 100% lines, and the last 8 weeks.
   function streakCard() {
     const d = state.dash;
     const s = d.streak;
-    const bars = d.members
-      .map((m) => {
-        const ms = d.sharedWeek.members[m.id];
-        const total = ms ? ms.habits.length : 0;
-        const hit = total ? ms.habits.filter((h) => h.met).length : 0;
-        const pct = total ? Math.round((hit / total) * 100) : 0;
-        return `
-          <div class="bar-row">
-            ${avatar(m)}
-            <div class="bar ${whoClass(m.id)}"><span style="width:${pct}%"></span></div>
-            <span class="bar-num">${total ? `${hit}/${total}` : '–'}</span>
-          </div>`;
-      })
-      .join('');
-    const lw = d.sharedLastWeek;
-    const hadGoals = d.members.length > 1 && d.members.every((m) => lw.members[m.id]?.habits.length);
-    const lastWeekLine = hadGoals
-      ? lw.allMet
-        ? 'Last week you both delivered.'
-        : `Last week ${d.members.filter((m) => !lw.members[m.id]?.met).map((m) => (isMe(m.id) ? 'you' : esc(m.name))).join(' and ')} came up short.`
+    const tier = s.tier;
+    const thisWeek = s.thisWeek;
+
+    let next;
+    if (!thisWeek) next = 'Starts once your partner joins and you agree on a goal.';
+    else if (!tier) next = 'Both hit 70% of your shared check-ins this week to start a streak.';
+    else if (tier === 'gold') next = 'Perfect weeks keep it gold. Under 100% drops it to green.';
+    else if (tier === 'green') {
+      const left = Math.max(1, s.goldRun - s.fullRun);
+      next = `${left} more perfect week${left === 1 ? '' : 's'} in a row for gold.`;
+    } else next = 'Hit 100% for a full week to go green.';
+
+    const bars = thisWeek
+      ? d.members
+          .map((m) => {
+            const mw = thisWeek.members[m.id];
+            const pct = mw?.pct == null ? null : Math.round(mw.pct * 100);
+            return `
+              <div class="bar-row">
+                ${avatar(m)}
+                <div class="bar marked ${whoClass(m.id)}"><span style="width:${pct ?? 0}%"></span><i class="mark-70"></i></div>
+                <span class="bar-num">${pct == null ? '–' : `${pct}%`}</span>
+              </div>`;
+          })
+          .join('')
+      : '';
+
+    const weeksShown = (s.history || []).slice(-7);
+    const history = weeksShown.length
+      ? `<div class="history" aria-label="Recent weeks">
+          ${weeksShown
+            .map((w) => `<span class="wk ${w.tier || 'none'}" title="Week of ${esc(w.start)}: ${w.pct == null ? 'no shared goals' : `${Math.round(w.pct * 100)}%`}"></span>`)
+            .join('')}
+          <span class="wk now ${tier || 'none'}" title="This week"></span>
+        </div>`
       : '';
 
     return `
-      <section class="card streak-card ${s.weeks > 0 ? 'lit' : ''}">
+      <section class="card streak-card tier-${tier || 'none'}">
         <div class="streak">
           <span class="streak-flame">${uiIcon('flame')}</span>
           <div>
             <div class="streak-num">${s.weeks}<span> week${s.weeks === 1 ? '' : 's'}</span></div>
-            <div class="small muted">Pair streak. Grows when you both hit every shared goal.</div>
+            <div class="streak-tier">${tier ? `${TIER_NAMES[tier]} streak` : 'No streak yet'}</div>
           </div>
+          ${history}
         </div>
-        <div class="bars">
-          <p class="eyebrow">Shared goals hit this week</p>
-          ${bars}
-        </div>
-        ${lastWeekLine ? `<p class="small">${lastWeekLine}</p>` : ''}
+        <p class="small muted streak-next">${next}</p>
+        ${bars ? `<div class="bars"><p class="eyebrow">This week, shared check-ins</p>${bars}</div>` : ''}
+        <p class="legend"><span class="key blue"></span>70%+ <span class="key green"></span>100% <span class="key gold"></span>3 perfect weeks</p>
       </section>`;
   }
+
 
   function proposalsCard(proposals) {
     const d = state.dash;

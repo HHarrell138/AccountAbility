@@ -341,7 +341,7 @@ function createApp({ dbFile = ':memory:' } = {}) {
       // Shared goals are what you're compared on, and all the pair streak counts.
       sharedWeek: L.scoreWeek(ids, shared, checkins, thisWeek),
       sharedLastWeek: L.scoreWeek(ids, shared, checkins, recentFrom),
-      streak: ids.length >= 2 ? L.pairStreak(ids, shared, checkins, today, p.created_day) : { weeks: 0, currentWeekMet: false },
+      streak: ids.length >= 2 ? L.pairStreak(ids, shared, checkins, today, p.created_day) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
       events,
       last_seen_event_id,
     };

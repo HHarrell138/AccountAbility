@@ -28,6 +28,8 @@
   --bad: #ff5a5f;
   --bad-soft: #2e1214;
   --warn: #f5b83d;
+  --gold: #f5c542;
+  --gold-soft: #2e260d;
   --warn-soft: #2e2410;
   --fresh: #0b1a33;
   --shadow: none;
@@ -293,7 +295,35 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   color: var(--muted);
 }
 .streak-flame .ui-icon { width: 32px; height: 32px; }
-.streak-card.lit .streak-flame { background: var(--you); color: var(--you-ink); }
+.streak-card { --tier: var(--muted); --tier-soft: var(--surface-2); }
+.streak-card.tier-blue { --tier: var(--you); --tier-soft: var(--you-soft); }
+.streak-card.tier-green { --tier: var(--good); --tier-soft: var(--good-soft); }
+.streak-card.tier-gold { --tier: var(--gold); --tier-soft: var(--gold-soft); border-color: var(--gold); }
+.streak-card:not(.tier-none) .streak-flame { background: var(--tier); color: #0a0c10; }
+.streak-tier { font: 700 0.95rem var(--font-display); color: var(--tier); margin-top: 2px; }
+.streak-card.tier-none .streak-tier { color: var(--muted); }
+.streak-next { margin-top: 10px; }
+.streak > div:nth-child(2) { flex: 1 1 auto; min-width: 0; }
+
+/* last weeks, oldest first, this week outlined */
+.history { display: flex; gap: 4px; align-self: flex-start; padding-top: 6px; }
+.wk { width: 10px; height: 22px; border-radius: 4px; background: var(--surface-2); }
+.wk.blue { background: var(--you); }
+.wk.green { background: var(--good); }
+.wk.gold { background: var(--gold); }
+.wk.now { outline: 2px solid var(--ink); outline-offset: 1px; opacity: 0.85; }
+
+/* 70% line on this week's bars */
+.bar.marked { position: relative; overflow: visible; }
+.bar.marked > span { border-radius: 999px; }
+.bar.marked .mark-70 { position: absolute; left: 70%; top: -3px; bottom: -3px; width: 2px; background: var(--muted); border-radius: 1px; }
+
+.legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 12px; font-size: 0.76rem; color: var(--muted); }
+.legend .key { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend .key:not(:first-child) { margin-left: 8px; }
+.legend .key.blue { background: var(--you); }
+.legend .key.green { background: var(--good); }
+.legend .key.gold { background: var(--gold); }
 .streak-num { font: 800 2.4rem/1 var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .streak-num span { font-size: 1.05rem; font-weight: 700; letter-spacing: 0; color: var(--muted); }
 

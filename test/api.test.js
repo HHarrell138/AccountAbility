@@ -202,7 +202,8 @@ test('shared goals: propose, agree, compare, and end together', async (t) => {
   await b('POST', '/api/checkins', { habit_id: theirs.id, status: 'done', today });
   dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.equal(dash.sharedWeek.allMet, true);
-  assert.deepEqual(dash.streak, { weeks: 1, currentWeekMet: true }); // side goal not done, streak still counts
+  // Side goal not done, but the streak only counts shared goals: a perfect week, so green.
+  assert.deepEqual([dash.streak.weeks, dash.streak.tier, dash.streak.currentWeekMet], [1, 'green', true]);
 
   // Either of you can end it, and it ends for both.
   assert.equal((await b('PATCH', `/api/habits/${theirs.id}`, { archived: true, today })).status, 200);

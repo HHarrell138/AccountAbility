@@ -105,18 +105,78 @@ function scoreWeek(memberIds, habits, checkins, start) {
   return { start, end, members, allMet };
 }
 
-// Consecutive weeks where EVERY member hit EVERY target. The current week only
-// adds to the streak once it's already won; it never breaks it while in progress.
+// ---------- the pair streak ----------
+//
+// Each finished week is scored by check-ins done / check-ins needed on shared
+// goals (extra days on one goal don't cover another), and the pair counts at
+// whichever partner had the lower week.
+//
+//   100%    -> green; three 100% weeks in a row -> gold (and it stays gold)
+//   70-99%  -> streak lives but drops a level: gold -> green, green -> blue
+//   under 70% -> the streak breaks; the next 70%+ week restarts it at blue,
+//                or at green if it's a 100% week
+//
+// The current week can only help: it adds a week once it reaches 70%, and
+// upgrades the color at 100%, but drops and breaks wait until it's over.
+
+const STREAK_MIN = 0.7;
+const GOLD_RUN = 3;
+
+function weekPercent(memberIds, habits, checkins, start) {
+  const s = scoreWeek(memberIds, habits, checkins, start);
+  const members = {};
+  for (const id of memberIds) {
+    const hs = s.members[id].habits;
+    const target = hs.reduce((t, h) => t + h.target, 0);
+    const done = hs.reduce((t, h) => t + Math.min(h.done, h.target), 0);
+    members[id] = { done, target, pct: target ? done / target : null };
+  }
+  const pcts = memberIds.map((id) => members[id].pct);
+  const pct = pcts.length && pcts.every((p) => p !== null) ? Math.min(...pcts) : null;
+  return { start, members, pct };
+}
+
+function nextTier(tier, fullRun, pct) {
+  if (pct === null || pct < STREAK_MIN) return { tier: null, fullRun: 0 };
+  if (pct >= 1) {
+    const run = fullRun + 1;
+    return { tier: run >= GOLD_RUN ? 'gold' : 'green', fullRun: run };
+  }
+  return { tier: tier === 'gold' ? 'green' : 'blue', fullRun: 0 };
+}
+
 function pairStreak(memberIds, habits, checkins, today, sinceDay) {
   const current = weekStart(today);
-  const floor = weekStart(sinceDay);
-  const currentWeekMet = scoreWeek(memberIds, habits, checkins, current).allMet;
+  let w = weekStart(sinceDay);
+  if (daysBetween(w, current) > 7 * 520) w = addDays(current, -7 * 520);
+  let tier = null;
+  let fullRun = 0;
   let weeks = 0;
-  for (let w = addDays(current, -7), i = 0; w >= floor && i < 520; w = addDays(w, -7), i++) {
-    if (!scoreWeek(memberIds, habits, checkins, w).allMet) break;
-    weeks++;
+  const history = [];
+  for (; w < current; w = addDays(w, 7)) {
+    const { pct } = weekPercent(memberIds, habits, checkins, w);
+    ({ tier, fullRun } = nextTier(tier, fullRun, pct));
+    weeks = tier ? weeks + 1 : 0;
+    history.push({ start: w, pct, tier });
   }
-  return { weeks: weeks + (currentWeekMet ? 1 : 0), currentWeekMet };
+  const thisWeek = weekPercent(memberIds, habits, checkins, current);
+  let shownTier = tier;
+  let shownWeeks = weeks;
+  let shownRun = fullRun;
+  if (thisWeek.pct !== null && thisWeek.pct >= STREAK_MIN) {
+    shownWeeks += 1;
+    if (thisWeek.pct >= 1) ({ tier: shownTier, fullRun: shownRun } = nextTier(tier, fullRun, 1));
+    else if (!tier) shownTier = 'blue';
+  }
+  return {
+    weeks: shownWeeks,
+    tier: shownTier,
+    fullRun: shownRun, // perfect weeks in a row, for "N more for gold"
+    goldRun: GOLD_RUN,
+    currentWeekMet: thisWeek.pct !== null && thisWeek.pct >= 1,
+    thisWeek,
+    history: history.slice(-8),
+  };
 }
 
 const api = {
@@ -129,6 +189,8 @@ const api = {
   availableDays,
   weeklyAmountTarget,
   scoreWeek,
+  weekPercent,
+  nextTier,
   pairStreak,
 };
 

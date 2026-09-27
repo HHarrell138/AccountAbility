@@ -40,7 +40,7 @@ test('scoreWeek: a member with no habits has not met anything', () => {
   assert.equal(s.allMet, false);
 });
 
-test('pairStreak needs both people every week', () => {
+test('pairStreak counts weeks where both of you hit 70% or more', () => {
   const habits = [habit({ id: 1, user_id: 1, target_per_week: 1 }), habit({ id: 2, user_id: 2, target_per_week: 1 })];
   const checkins = [
     done(1, '2026-09-08'), done(2, '2026-09-09'), // week of 9/7: both
@@ -48,14 +48,52 @@ test('pairStreak needs both people every week', () => {
     done(1, '2026-09-22'), // week of 9/21 (current): only user 1 so far
   ];
   const s = L.pairStreak([1, 2], habits, checkins, '2026-09-26', '2026-09-01');
-  assert.deepEqual(s, { weeks: 2, currentWeekMet: false });
+  assert.equal(s.weeks, 2);
+  assert.equal(s.tier, 'green');
+  assert.equal(s.currentWeekMet, false);
 
+  // Third perfect week in a row turns it gold.
   const s2 = L.pairStreak([1, 2], habits, [...checkins, done(2, '2026-09-26')], '2026-09-26', '2026-09-01');
-  assert.deepEqual(s2, { weeks: 3, currentWeekMet: true });
+  assert.deepEqual([s2.weeks, s2.tier, s2.currentWeekMet], [3, 'gold', true]);
 
-  // One partner slacking in the middle resets it.
+  // One partner under 70% in the middle breaks it.
   const s3 = L.pairStreak([1, 2], habits, checkins.filter((c) => !(c.habit_id === 2 && c.day === '2026-09-16')), '2026-09-26', '2026-09-01');
   assert.equal(s3.weeks, 0);
+  assert.equal(s3.tier, null);
+});
+
+test('streak colors: gold after 3 perfect weeks, drop a level at 70-99%, break under 70%', () => {
+  const step = (tier, run, pct) => L.nextTier(tier, run, pct);
+  let t = { tier: null, fullRun: 0 };
+  const walk = (pcts) => pcts.map((p) => (t = step(t.tier, t.fullRun, p)).tier);
+  assert.deepEqual(walk([0.8, 1, 1, 1, 1]), ['blue', 'green', 'green', 'gold', 'gold']);
+  assert.deepEqual(walk([0.9]), ['green']); // gold drops one level
+  assert.deepEqual(walk([0.75]), ['blue']); // green drops to blue
+  assert.deepEqual(walk([0.7]), ['blue']); // blue stays blue
+  assert.deepEqual(walk([0.5]), [null]); // under 70% breaks it
+  assert.deepEqual(walk([1]), ['green']); // a perfect week restarts at green
+  t = { tier: null, fullRun: 0 };
+  assert.deepEqual(walk([0.69, 0.7]), [null, 'blue']); // 70% restarts at blue
+});
+
+test('the pair is scored at the lower of the two weeks, by check-ins not goals', () => {
+  // You: 9 of 10 check-ins (90%). Partner: 7 of 7 (100%). Pair week: 90%.
+  const habits = [
+    habit({ id: 1, user_id: 1, target_per_week: 6 }),
+    habit({ id: 2, user_id: 1, target_per_week: 4 }),
+    habit({ id: 3, user_id: 2, target_per_week: 7 }),
+  ];
+  const week = '2026-09-14';
+  const days = (n) => Array.from({ length: n }, (_, i) => L.addDays(week, i));
+  const checkins = [
+    ...days(5).map((d) => done(1, d)),
+    ...days(4).map((d) => done(2, d)),
+    ...days(7).map((d) => done(3, d)),
+  ];
+  const w = L.weekPercent([1, 2], habits, checkins, week);
+  assert.equal(w.members[1].pct, 0.9);
+  assert.equal(w.members[2].pct, 1);
+  assert.equal(w.pct, 0.9);
 });
 
 test('scheduled habits only count days that have a time', () => {
