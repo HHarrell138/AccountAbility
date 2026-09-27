@@ -3,6 +3,7 @@ services:
   - type: web
     name: accountability
     runtime: docker
+    branch: main         # the live app; work happens on other branches and merges here
     plan: starter        # needed for a persistent disk; free instances wipe the database
     region: ohio
     healthCheckPath: /api/health

@@ -44,10 +44,10 @@ Environment variables: `PORT` (default 3000) and `DB_FILE` (SQLite path, or `:me
 `render.yaml` in the repo defines everything: a Docker web service, a 1 GB persistent disk for the database, and a health check.
 
 1. Sign up at [render.com](https://render.com) with GitHub.
-2. **New → Blueprint**, pick this repo and branch, then click **Apply**.
+2. **New → Blueprint**, pick this repo and the **`main`** branch, then click **Apply**.
 3. Wait for the first deploy to go green (a few minutes), then open the `onrender.com` URL.
 
-Every push to that branch redeploys automatically, and the database lives on the disk, so it survives deploys.
+Render deploys from **`main`**, which is the live app. Work happens on other branches and gets tried in the preview first; merging into `main` is what ships it. Every push to `main` redeploys automatically, and the database lives on the disk, so it survives deploys.
 Paid instances are needed because free ones have no persistent disk and would wipe everyone's data on each restart.
 
 The `Dockerfile` also runs anywhere else (Railway, Fly.io, a VPS). Just mount a volume at `/var/data`.
