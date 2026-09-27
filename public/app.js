@@ -293,8 +293,8 @@
       <section class="block">
         <h2 class="section-title">Your side goals</h2>
         <p class="section-note">Just yours. ${partnerName} can see them, but they don't count toward the streak.</p>
-        ${sideMine.map((h) => sideCard(h)).join('')}
         ${addForm('side', false, partnerName)}
+        ${sideMine.map((h) => sideCard(h)).join('')}
       </section>
 
       ${partners
