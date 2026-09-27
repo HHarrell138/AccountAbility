@@ -3,13 +3,13 @@
 // Preview mode: a fake backend that runs entirely in the browser so the app can
 // be tried on a phone with no server. It mirrors the rules in src/server.js and
 // reuses src/logic.js (loaded before this file as window.AALogic) for scoring.
-// It starts empty, like a brand-new account. Jake is a simulated partner who
+// It opens already signed in, in a pact Jake has just joined, with no goals yet. Jake is a simulated partner who
 // joins when asked, proposes a shared goal, agrees to yours, and reacts to
 // what you do.
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v3';
+  const KEY = 'aa.demo.v4';
   const ME = 1;
   const JAKE = 2;
   const JAKE_USER = { id: JAKE, name: 'Jake', username: 'jake' };
@@ -30,7 +30,6 @@
   } catch {
     db = null;
   }
-  if (!db) db = fresh();
 
   const save = () => {
     try {
@@ -330,8 +329,23 @@
     fail(404, 'Not in the preview');
   };
 
-  window.AA_DEMO_RESET = () => {
+  // Skip sign-up and pact setup: start signed in as Hank, in a pact Jake has
+  // just joined. Jake brings a side goal and proposes a shared one.
+  function ready() {
     db = fresh();
+    const today = localToday();
+    db.me = { id: ME, name: 'Hank', username: 'hank' };
+    db.loggedIn = true;
+    db.partnership = { id: 1, name: 'Hank & Jake', stakes: 'Loser buys dinner', invite_code: inviteCode(), max_members: 2, created_day: today };
+    db.members = [ME];
+    addEvent({ actor_id: ME, kind: 'created', message: db.partnership.name });
+    addEvent({ actor_id: ME, kind: 'stakes', message: db.partnership.stakes });
+    jakeJoins(today);
+    db.lastSeen = 0;
     save();
-  };
+  }
+
+  if (!db || !db.loggedIn) ready();
+
+  window.AA_DEMO_RESET = ready;
 })();

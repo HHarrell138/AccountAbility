@@ -293,8 +293,10 @@
       </section>
 
       <footer class="foot">
-        <button class="link" data-action="new-pact">Start or join another pact</button>
-        <button class="link" data-action="logout">Log out</button>
+        ${window.AA_DEMO
+          ? '' // the preview is one pact with no accounts
+          : `<button class="link" data-action="new-pact">Start or join another pact</button>
+             <button class="link" data-action="logout">Log out</button>`}
       </footer>`;
   }
 
@@ -377,7 +379,7 @@
         <div class="progress-head">
           <div>
             <p class="eyebrow">Today</p>
-            <div class="progress-num">${done}<span>/${due.length}</span></div>
+            <div class="progress-num">${due.length ? `${done}<span>/${due.length}</span>` : '–'}</div>
           </div>
           <p class="progress-meta">${meta}</p>
         </div>
