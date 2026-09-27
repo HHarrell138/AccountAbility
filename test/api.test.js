@@ -265,3 +265,47 @@ test('wake-up schedule: per-day times set the weekly target and carry into share
   assert.equal((await a('POST', '/api/habits', { partnership_id: pid, title: 'X', schedule: { mon: '25:00' }, today })).status, 400);
   assert.equal((await a('POST', '/api/habits', { partnership_id: pid, title: 'X', schedule: {}, today })).status, 400);
 });
+
+test('shared wake-up goal: each of you keeps your own times', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const a = client(base);
+  const b = client(base);
+  await a('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await b('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
+  const { id: pid, invite_code } = (await a('POST', '/api/partnerships', { today })).data.partnership;
+  await b('POST', '/api/partnerships/join', { code: invite_code });
+  const hankId = (await a('GET', '/api/me')).data.user.id;
+  const kingId = (await b('GET', '/api/me')).data.user.id;
+
+  const hanks = { mon: '05:30', tue: '05:30', wed: '05:30', thu: '05:30', fri: '07:00', sat: '09:00', sun: '09:00' };
+  const kings = { mon: '06:45', tue: '06:45', wed: '06:45', thu: '06:45', fri: '06:45' };
+  const goal = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Wake up on schedule', icon: 'wake', schedule: hanks, today })).data.goal;
+  assert.equal((await b('POST', `/api/goals/${goal.id}/respond`, { answer: 'accept', schedule: kings, today })).status, 200);
+
+  let dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  const mine = dash.habits.find((h) => h.goal_id === goal.id && h.user_id === hankId);
+  const his = dash.habits.find((h) => h.goal_id === goal.id && h.user_id === kingId);
+  assert.equal(mine.schedule, JSON.stringify(hanks));
+  assert.equal(mine.target_per_week, 7);
+  assert.equal(his.schedule, JSON.stringify(kings));
+  assert.equal(his.target_per_week, 5);
+
+  // Changing your times is on the record, and only your own.
+  const newer = { mon: '06:00', tue: '06:00', wed: '06:00' };
+  assert.equal((await b('PATCH', `/api/habits/${mine.id}`, { schedule: newer })).status, 404);
+  assert.equal((await a('PATCH', `/api/habits/${mine.id}`, { schedule: newer })).status, 200);
+  dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.habits.find((h) => h.id === mine.id).target_per_week, 3);
+  assert.equal(dash.events[0].kind, 'schedule_changed');
+  assert.equal((await a('PATCH', `/api/habits/${mine.id}`, { schedule: {} })).status, 400);
+
+  // Agreeing without times falls back to the proposer's.
+  const g2 = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Wake up by 6:00 AM', icon: 'wake', schedule: { sat: '06:00' }, today })).data.goal;
+  await b('POST', `/api/goals/${g2.id}/respond`, { answer: 'accept', today });
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.habits.find((h) => h.goal_id === g2.id && h.user_id === kingId).schedule, JSON.stringify({ sat: '06:00' }));
+});

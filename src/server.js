@@ -400,6 +400,17 @@ function createApp({ dbFile = ':memory:' } = {}) {
         }
       });
     }
+    // Change your own times on a scheduled goal. Your partner sees that you did.
+    if (body.schedule !== undefined) {
+      if (!h.schedule) fail(400, 'That goal has no schedule');
+      if (h.archived_day) fail(400, 'That goal has ended');
+      const schedule = parseSchedule(body.schedule);
+      if (!schedule) fail(400, 'Pick at least one day');
+      if (schedule !== h.schedule) {
+        q('UPDATE habits SET schedule = ?, target_per_week = ? WHERE id = ?').run(schedule, Object.keys(JSON.parse(schedule)).length, h.id);
+        addEvent({ partnership_id: h.partnership_id, actor_id: user.id, habit_id: h.id, kind: 'schedule_changed' });
+      }
+    }
     if (body.why !== undefined) {
       q('UPDATE habits SET why = ? WHERE id = ?').run(str(body.why, 'Why', { max: 200, required: false }), h.id);
     }
@@ -441,12 +452,17 @@ function createApp({ dbFile = ':memory:' } = {}) {
       }
       if (answer !== 'accept') fail(400, 'answer must be accept, decline or withdraw');
       const today = clientToday(body.today);
+      // A scheduled goal (wake-up times) is agreed as a habit, not as times:
+      // whoever agrees brings their own schedule. The proposer keeps theirs.
+      const ownSchedule = goal.schedule ? parseSchedule(body.schedule) || goal.schedule : '';
       q(`UPDATE goals SET status = 'active', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(goal.id);
       for (const uid of memberIds(goal.partnership_id)) {
+        const schedule = uid === user.id ? ownSchedule : goal.schedule;
+        const target = schedule ? Object.keys(JSON.parse(schedule)).length : goal.target_per_week;
         q(
           `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, goal_id, created_day)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(goal.partnership_id, uid, goal.title, goal.why, goal.target_per_week, goal.icon, goal.schedule, goal.id, today);
+        ).run(goal.partnership_id, uid, goal.title, goal.why, target, goal.icon, schedule, goal.id, today);
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
       return { ok: true };

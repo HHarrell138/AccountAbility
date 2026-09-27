@@ -31,6 +31,7 @@
     bell: '<path d="M6.5 16v-5a5.5 5.5 0 0 1 11 0v5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     chevron: '<path d="M6 9l6 6 6-6"/>',
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     flame: ICONS.calories,
     pact: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
   };
@@ -325,14 +326,14 @@
     const d = state.dash;
     const scored = new Map((d.week.members[d.me]?.habits || []).map((x) => [x.habit_id, x]));
     const goals = d.habits
-      .filter((h) => isMe(h.user_id) && scored.has(h.id) && !h.archived_day)
+      .filter((h) => isMe(h.user_id) && !h.archived_day && h.created_day <= d.today)
       .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1)); // shared first
 
     const items = goals.map((h) => {
       const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
       const sched = parseSched(h.schedule);
       const offToday = sched && !sched[dayKey(d.today)];
-      const status = c ? c.status : offToday ? 'off' : scored.get(h.id).met ? 'rest' : 'todo';
+      const status = c ? c.status : offToday ? 'off' : scored.get(h.id)?.met ? 'rest' : 'todo';
       return { h, status };
     });
     const due = items.filter((i) => i.status !== 'rest' && i.status !== 'off');
@@ -450,18 +451,35 @@
               <div class="proposal-body">
                 <p class="small muted">${mine ? `You proposed. ${partner ? `Waiting on ${esc(partner.name)}.` : 'Waiting for your partner to join.'}` : `${nameOf(g.proposed_by)} wants you both to`}</p>
                 <p class="proposal-title">${esc(g.title)}</p>
-                <p class="small muted">${esc(cadence(g))}${g.why ? ` · ${esc(g.why)}` : ''}</p>
+                <p class="small muted">${g.schedule ? `${mine ? 'Your' : `${nameOf(g.proposed_by)}'s`} times: ` : ''}${esc(cadence(g))}${g.why ? ` · ${esc(g.why)}` : ''}</p>
                 <div class="row">
                   ${mine
                     ? `<button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="withdraw">Withdraw</button>`
-                    : `<button class="btn small primary" data-action="respond" data-goal="${g.id}" data-answer="accept">${uiIcon('done')}Agree</button>
+                    : g.schedule && state.panel?.type === 'accept' && state.panel.goalId === g.id
+                      ? ''
+                      : `<button class="btn small primary" data-action="${g.schedule ? 'open-accept' : 'respond'}" data-goal="${g.id}" data-answer="accept">${uiIcon('done')}Agree</button>
                        <button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="decline">Pass</button>`}
                 </div>
               </div>
+              ${!mine && g.schedule && state.panel?.type === 'accept' && state.panel.goalId === g.id ? acceptPanel(g, nameOf(g.proposed_by)) : ''}
             </div>`;
           })
           .join('')}
       </section>`;
+  }
+
+  // Agreeing to a wake-up goal: set your own times first.
+  function acceptPanel(g, proposer) {
+    return `
+      <form class="panel accept-panel" data-form="accept" data-goal="${g.id}">
+        <p class="small">You're agreeing to the habit, not ${proposer}'s times. Set yours. ${proposer} keeps theirs.</p>
+        ${schedEditor(`accept-${g.id}`, parseSched(g.schedule) || {}, 'Your wake-up times')}
+        <p class="small muted" data-role="preview-sub">${esc(schedLine(parseSched(g.schedule) || {}))}</p>
+        <div class="row">
+          <button class="btn primary" type="submit">${uiIcon('done')}Agree with my times</button>
+          <button class="btn" type="button" data-action="close-panel">Cancel</button>
+        </div>
+      </form>`;
   }
 
   // One person's week on one habit.
@@ -473,11 +491,16 @@
     const done = score ? score.done : 0;
     const target = score ? score.target : h.target_per_week;
     const todayC = byDay.get(d.today);
-    const daysLeft = 7 - Math.round((Date.parse(d.today) - Date.parse(start)) / 86400000) - (todayC ? 1 : 0);
+    // Days still open this week: from today (unless already logged) to Sunday,
+    // counting only scheduled days for goals with a schedule.
+    const from = todayC ? addDays(d.today, 1) : d.today;
+    const end = addDays(start, 6);
+    const daysLeft = from > end ? 0 : daysOpen(h, from, end);
     const need = Math.max(0, target - done);
 
     let outlook;
-    if (need === 0) outlook = `<span class="pill good">target hit</span>`;
+    if (!score && !h.archived_day) outlook = `<span class="pill">starts Monday</span>`; // no scheduled days left this week
+    else if (need === 0) outlook = `<span class="pill good">target hit</span>`;
     else if (need > daysLeft) outlook = `<span class="pill bad">week lost</span>`;
     else if (need === daysLeft) outlook = `<span class="pill warn">no slack</span>`;
     else outlook = `<span class="pill">${need} to go</span>`;
@@ -540,7 +563,32 @@
         ${w.dots}
         ${rowAction(h, w)}
         ${subline(h, w, person)}
+        ${schedRow(h)}
         ${missOpen ? missPanel(h) : ''}
+      </div>`;
+  }
+
+  // "Mon–Thu 5:30 AM · ..." under a scheduled row, with Edit times on your own.
+  function schedRow(h) {
+    const sched = parseSched(h.schedule);
+    if (!sched) return '';
+    if (state.panel?.type === 'edit-sched' && state.panel.habitId === h.id) {
+      return `
+        <form class="panel" data-form="edit-sched" data-habit="${h.id}">
+          ${schedEditor(`edit-${h.id}`, sched, 'Your wake-up times')}
+          <p class="small muted" data-role="preview-sub">${esc(schedLine(sched))}</p>
+          <p class="small muted">Your partner will see that you changed your times.</p>
+          <div class="row">
+            <button class="btn primary" type="submit">Save times</button>
+            <button class="btn" type="button" data-action="close-panel">Cancel</button>
+          </div>
+        </form>`;
+    }
+    const mine = isMe(h.user_id) && !h.archived_day;
+    return `
+      <div class="row-sched">
+        ${uiIcon('clock')}<span>${esc(schedSummary(sched))}</span>
+        ${mine ? `<button class="link" data-action="edit-sched" data-habit="${h.id}">Edit times</button>` : ''}
       </div>`;
   }
 
@@ -620,7 +668,7 @@
     return `
       <article class="card goal ${open ? 'is-open' : ''}" id="g-${g.id}">
         <div class="goal-hit" data-action="toggle-goal" data-goal="${g.id}">
-          ${cardHead(g.icon, g.title, `Both of you · ${esc(cadence(g))}`, g.why)}
+          ${cardHead(g.icon, g.title, g.schedule ? 'Both of you · each on your own times' : `Both of you · ${esc(cadence(g))}`, g.why)}
           ${mine ? proratedNote(mine) : ''}
         </div>
         <div class="tracker">
@@ -640,7 +688,7 @@
     const mine = isMe(h.user_id);
     return `
       <article class="card side" id="h-${h.id}">
-        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`} · ${esc(cadence(h))}`, h.why)}
+        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`}${h.schedule ? '' : ` · ${esc(cadence(h))}`}`, h.why)}
         ${proratedNote(h)}
         <div class="tracker">
           ${dayHeader()}
@@ -670,18 +718,9 @@
         preset.key === 'custom'
           ? `<label for="${kind}-title">Goal<input id="${kind}-title" name="title" maxlength="80" required placeholder="${shared ? 'No phone after 10pm' : 'Edit one video'}" data-autofocus></label>`
           : preset.schedule
-            ? `<fieldset class="sched">
-                 <legend>Wake-up time for each day</legend>
-                 ${WEEK.map(
-                   ([k, label]) => `
-                   <div class="sched-row">
-                     <span class="sched-day">${label}</span>
-                     <input id="${kind}-t-${k}" name="t-${k}" type="time" value="${preset.schedule[k]}" aria-label="${label} wake-up time" data-action="sched-input">
-                     <label class="sched-off"><input type="checkbox" name="off-${k}" data-action="sched-input">Off</label>
-                   </div>`
-                 ).join('')}
-               </fieldset>
-               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(schedTitle(preset.schedule))}</span></p>
+            ? `${schedEditor(kind, preset.schedule, shared ? 'Your wake-up times' : 'Wake-up time for each day')}
+               ${shared ? `<p class="small muted">${partnerName} sets their own times when they agree.</p>` : ''}
+               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(schedTitle(preset.schedule, shared))}</span></p>
                <p class="small muted" data-role="preview-sub">${esc(schedLine(preset.schedule))}</p>`
           : preset.amount
             ? `<label for="${kind}-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
@@ -748,10 +787,28 @@
     return parts.join(' · ');
   }
 
-  function schedTitle(sched) {
+  // A shared wake-up goal is always "on schedule": each of you has your own times.
+  function schedTitle(sched, shared = false) {
     const times = Object.values(sched);
     if (!times.length) return '…';
-    return new Set(times).size === 1 ? `Wake up by ${clockTime(times[0])}` : 'Wake up on schedule';
+    return !shared && new Set(times).size === 1 ? `Wake up by ${clockTime(times[0])}` : 'Wake up on schedule';
+  }
+
+  // Seven rows of day / time / Off. Used to add a goal, agree to one, and edit times.
+  function schedEditor(prefix, sched, legend) {
+    return `
+      <fieldset class="sched">
+        <legend>${esc(legend)}</legend>
+        ${WEEK.map(([k, label]) => {
+          const t = sched[k];
+          return `
+          <div class="sched-row">
+            <span class="sched-day">${label}</span>
+            <input id="${prefix}-t-${k}" name="t-${k}" type="time" value="${t || '07:00'}" ${t ? '' : 'disabled'} aria-label="${label} wake-up time" data-action="sched-input">
+            <label class="sched-off"><input type="checkbox" name="off-${k}" ${t ? '' : 'checked'} data-action="sched-input">Off</label>
+          </div>`;
+        }).join('')}
+      </fieldset>`;
   }
 
   function schedLine(sched) {
@@ -767,6 +824,15 @@
       if (!off && /^\d{2}:\d{2}$/.test(t)) sched[k] = t;
     }
     return sched;
+  }
+
+  // Days from `from` to `to` (inclusive) a habit can still be done on; with a
+  // schedule, days off don't count. Mirrors availableDays in src/logic.js.
+  function daysOpen(h, from, to) {
+    const sched = parseSched(h.schedule);
+    let n = 0;
+    for (let day = from; day <= to; day = addDays(day, 1)) if (!sched || sched[dayKey(day)]) n++;
+    return n;
   }
 
   const dayKey = (day) => WEEK[(new Date(day + 'T00:00:00Z').getUTCDay() + 6) % 7][0];
@@ -812,6 +878,7 @@
       case 'goal_declined': text = `${who} passed on ${goal}.`; break;
       case 'goal_withdrawn': text = `${who} withdrew ${goal}.`; break;
       case 'goal_ended': text = `${who} ended the shared goal ${habit}.`; break;
+      case 'schedule_changed': text = `${who} changed the wake-up times on ${habit}.`; break;
       case 'nudge': text = `${who} nudged ${whom}${habit ? ` about ${habit}` : ''}.${note}`; break;
       case 'cheer': text = `${who} cheered ${whom}${habit ? ` on ${habit}` : ''}.${note}`; break;
       default: text = `${who}: ${esc(e.kind)}`;
@@ -885,7 +952,7 @@
       else if (preset.schedule) {
         schedule = readSched(f);
         if (!Object.keys(schedule).length) throw new Error('Pick at least one day');
-        title = schedTitle(schedule);
+        title = schedTitle(schedule, f.dataset.kind === 'shared');
       } else if (preset.amount) title = presetTitle(preset, f.amount.value);
       else title = preset.title();
       if (!title) throw new Error(`Enter how many ${preset.unit}`);
@@ -902,6 +969,24 @@
       state.preset = null;
       state.addOpen = null;
       toast(shared ? 'Proposed. It starts when your partner agrees.' : 'Side goal added. Your partner can see it.');
+      await refresh();
+    },
+    async accept(f) {
+      const schedule = readSched(f);
+      if (!Object.keys(schedule).length) throw new Error('Pick at least one day');
+      await api('POST', `/api/goals/${f.dataset.goal}/respond`, { answer: 'accept', schedule, today: localToday() });
+      state.panel = null;
+      state.addOpen = null;
+      state.preset = null;
+      toast('Agreed. You’re both on it, each on your own times.');
+      await refresh();
+    },
+    async 'edit-sched'(f) {
+      const schedule = readSched(f);
+      if (!Object.keys(schedule).length) throw new Error('Pick at least one day');
+      await api('PATCH', `/api/habits/${f.dataset.habit}`, { schedule, today: localToday() });
+      state.panel = null;
+      toast('Times saved.');
       await refresh();
     },
     async miss(f) {
@@ -929,6 +1014,14 @@
       await api('POST', '/api/checkins/undo', { habit_id: Number(el.dataset.habit), day: el.dataset.day, today: localToday() });
       toast('Undone.');
       await refresh();
+    },
+    'open-accept'(el) {
+      state.panel = { type: 'accept', goalId: Number(el.dataset.goal) };
+      render();
+    },
+    'edit-sched'(el) {
+      state.panel = { type: 'edit-sched', habitId: Number(el.dataset.habit) };
+      render();
     },
     'open-miss'(el) {
       state.panel = { type: 'miss', habitId: Number(el.dataset.habit) };
@@ -1043,8 +1136,10 @@
       const form = ev.target.closest('form');
       for (const [k] of WEEK) form.querySelector(`[name="t-${k}"]`).disabled = form.querySelector(`[name="off-${k}"]`).checked;
       const sched = readSched(form);
-      form.querySelector('[data-role=preview]').textContent = schedTitle(sched);
-      form.querySelector('[data-role=preview-sub]').textContent = schedLine(sched);
+      const title = form.querySelector('[data-role=preview]');
+      const sub = form.querySelector('[data-role=preview-sub]');
+      if (title) title.textContent = schedTitle(sched, form.dataset.kind === 'shared');
+      if (sub) sub.textContent = schedLine(sched);
       return;
     }
     if (ev.target.dataset.action !== 'preset-amount') return;

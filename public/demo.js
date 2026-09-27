@@ -97,6 +97,9 @@
     return out;
   }
 
+  // King's own mornings, used when he agrees to a wake-up goal.
+  const KING_WAKE = JSON.stringify({ mon: '06:45', tue: '06:45', wed: '06:45', thu: '06:45', fri: '06:45', sat: '08:30' });
+
   const goalLabel = (g) => `${g.title} (${g.target_per_week}x / week)`;
 
   function propose(userId, g) {
@@ -106,15 +109,20 @@
     return goal;
   }
 
-  function accept(goal, byUser, today) {
+  // A scheduled goal: whoever agrees brings their own times; the proposer keeps theirs.
+  function accept(goal, byUser, today, ownSchedule) {
     goal.status = 'active';
-    db.members.forEach((uid) => addHabit(uid, goal, today, goal.id));
+    db.members.forEach((uid) => {
+      const schedule = uid === byUser && goal.schedule ? ownSchedule || goal.schedule : goal.schedule;
+      const target = schedule ? Object.keys(JSON.parse(schedule)).length : goal.target_per_week;
+      addHabit(uid, { ...goal, schedule, target_per_week: target }, today, goal.id);
+    });
     addEvent({ actor_id: byUser, target_id: goal.proposed_by, kind: 'goal_accepted', message: goalLabel(goal) });
   }
 
   // King says yes to anything you've proposed.
   function kingAgrees(today) {
-    db.goals.filter((g) => g.status === 'proposed' && g.proposed_by === ME).forEach((g) => accept(g, KING, today));
+    db.goals.filter((g) => g.status === 'proposed' && g.proposed_by === ME).forEach((g) => accept(g, KING, today, KING_WAKE));
   }
 
   function kingJoins(today) {
@@ -259,13 +267,23 @@
         addEvent({ actor_id: ME, target_id: goal.proposed_by, kind: 'goal_declined', message: goalLabel(goal) });
         addEvent({ actor_id: KING, target_id: ME, kind: 'nudge', message: 'Fair. Pick one you will actually do then.' });
       } else {
-        accept(goal, ME, b.today);
+        accept(goal, ME, b.today, goal.schedule ? fields({ title: goal.title, schedule: b.schedule }).schedule : '');
       }
       return { ok: true };
     }],
     ['PATCH', /^\/api\/habits\/(\d+)$/, (b, q, m) => {
       const h = db.habits.find((x) => x.id === Number(m[1]) && x.user_id === ME);
       if (!h) fail(404, 'Habit not found');
+      if (b.schedule !== undefined) {
+        if (!h.schedule) fail(400, 'That goal has no schedule');
+        const schedule = fields({ title: h.title, schedule: b.schedule }).schedule;
+        if (!schedule) fail(400, 'Pick at least one day');
+        if (schedule !== h.schedule) {
+          h.schedule = schedule;
+          h.target_per_week = Object.keys(JSON.parse(schedule)).length;
+          addEvent({ actor_id: ME, habit_id: h.id, kind: 'schedule_changed' });
+        }
+      }
       if (b.archived && !h.archived_day && h.goal_id) {
         db.habits.filter((x) => x.goal_id === h.goal_id && !x.archived_day).forEach((x) => (x.archived_day = b.today));
         db.goals.find((g) => g.id === h.goal_id).status = 'ended';

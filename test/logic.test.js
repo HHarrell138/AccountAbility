@@ -57,3 +57,14 @@ test('pairStreak needs both people every week', () => {
   const s3 = L.pairStreak([1, 2], habits, checkins.filter((c) => !(c.habit_id === 2 && c.day === '2026-09-16')), '2026-09-26', '2026-09-01');
   assert.equal(s3.weeks, 0);
 });
+
+test('scheduled habits only count days that have a time', () => {
+  // Weekdays only, created on a Saturday: nothing left this week, 5 next week.
+  const h = habit({ target_per_week: 5, created_day: '2026-09-26', schedule: JSON.stringify({ mon: '06:45', tue: '06:45', wed: '06:45', thu: '06:45', fri: '06:45' }) });
+  assert.equal(L.effectiveTarget(h, '2026-09-21'), 0);
+  assert.equal(L.effectiveTarget(h, '2026-09-28'), 5);
+  // Created on a Sunday with Sat-Sun scheduled: just Sunday left.
+  const weekend = habit({ target_per_week: 2, created_day: '2026-09-27', schedule: { sat: '09:00', sun: '09:00' } });
+  assert.equal(L.effectiveTarget(weekend, '2026-09-21'), 1);
+  assert.equal(L.availableDays(weekend, '2026-09-21', '2026-09-27'), 2);
+});

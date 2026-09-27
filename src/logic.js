@@ -42,7 +42,31 @@ function effectiveTarget(habit, start) {
   if (habit.created_day > end) return 0;
   if (habit.archived_day && habit.archived_day <= start) return 0;
   const firstDay = habit.created_day > start ? habit.created_day : start;
-  return Math.min(habit.target_per_week, daysBetween(firstDay, end) + 1);
+  return Math.min(habit.target_per_week, availableDays(habit, firstDay, end));
+}
+
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+function parseSchedule(schedule) {
+  if (!schedule) return null;
+  if (typeof schedule === 'object') return schedule;
+  try {
+    return JSON.parse(schedule);
+  } catch {
+    return null;
+  }
+}
+
+// Days from `from` to `to` (inclusive) the habit can be done on. With a
+// schedule, only days that have a time count; days off don't.
+function availableDays(habit, from, to) {
+  const sched = parseSchedule(habit.schedule);
+  if (!sched) return daysBetween(from, to) + 1;
+  let n = 0;
+  for (let day = from; day <= to; day = addDays(day, 1)) {
+    if (sched[WEEKDAY_KEYS[new Date(day + 'T00:00:00Z').getUTCDay()]]) n++;
+  }
+  return n;
 }
 
 function scoreWeek(memberIds, habits, checkins, start) {
@@ -93,6 +117,7 @@ const api = {
   utcToday,
   weekStart,
   effectiveTarget,
+  availableDays,
   scoreWeek,
   pairStreak,
 };
