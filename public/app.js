@@ -219,7 +219,7 @@
       <p class="lede">Start a pact and send your partner the code, or join the one they started.</p>
       <form class="card" data-form="create-pact">
         <h2 class="card-title">Start a pact</h2>
-        <label for="p-name">Name it <span class="muted">(optional)</span><input id="p-name" name="name" maxlength="60" placeholder="Hank &amp; Jake"></label>
+        <label for="p-name">Name it <span class="muted">(optional)</span><input id="p-name" name="name" maxlength="60" placeholder="Hank &amp; King"></label>
         <label for="p-stakes">What's on the line? <span class="muted">(optional)</span>
           <input id="p-stakes" name="stakes" maxlength="200" placeholder="Whoever misses their week buys dinner"></label>
         <button class="btn primary wide" type="submit">Create pact</button>

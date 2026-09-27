@@ -3,18 +3,18 @@
 // Preview mode: a fake backend that runs entirely in the browser so the app can
 // be tried on a phone with no server. It mirrors the rules in src/server.js and
 // reuses src/logic.js (loaded before this file as window.AALogic) for scoring.
-// It opens already signed in, in a pact Jake has just joined, with no goals yet. Jake is a simulated partner who
+// It opens already signed in, in a pact King has just joined, with no goals yet. King is a simulated partner who
 // joins when asked, proposes a shared goal, agrees to yours, and reacts to
 // what you do.
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v4';
+  const KEY = 'aa.demo.v5';
   const ME = 1;
-  const JAKE = 2;
-  const JAKE_USER = { id: JAKE, name: 'Jake', username: 'jake' };
-  const JAKE_SIDE = { title: 'Work out', icon: 'workout', why: 'Stay strong for the season', target_per_week: 4 };
-  const JAKE_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6 };
+  const KING = 2;
+  const KING_USER = { id: KING, name: 'King', username: 'king' };
+  const KING_SIDE = { title: 'Work out', icon: 'workout', why: 'Stay strong for the season', target_per_week: 4 };
+  const KING_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6 };
 
   function localToday() {
     const d = new Date();
@@ -40,7 +40,7 @@
   };
 
   const id = () => db.nextId++;
-  const user = (uid) => (uid === ME ? db.me : JAKE_USER);
+  const user = (uid) => (uid === ME ? db.me : KING_USER);
 
   function fail(status, message) {
     const err = new Error(message);
@@ -97,18 +97,18 @@
     addEvent({ actor_id: byUser, target_id: goal.proposed_by, kind: 'goal_accepted', message: goalLabel(goal) });
   }
 
-  // Jake says yes to anything you've proposed.
-  function jakeAgrees(today) {
-    db.goals.filter((g) => g.status === 'proposed' && g.proposed_by === ME).forEach((g) => accept(g, JAKE, today));
+  // King says yes to anything you've proposed.
+  function kingAgrees(today) {
+    db.goals.filter((g) => g.status === 'proposed' && g.proposed_by === ME).forEach((g) => accept(g, KING, today));
   }
 
-  function jakeJoins(today) {
-    if (db.members.includes(JAKE)) return;
-    db.members.push(JAKE);
-    addEvent({ actor_id: JAKE, kind: 'joined' });
-    jakeAgrees(today);
-    addHabit(JAKE, JAKE_SIDE, today);
-    propose(JAKE, JAKE_PROPOSAL);
+  function kingJoins(today) {
+    if (db.members.includes(KING)) return;
+    db.members.push(KING);
+    addEvent({ actor_id: KING, kind: 'joined' });
+    kingAgrees(today);
+    addHabit(KING, KING_SIDE, today);
+    propose(KING, KING_PROPOSAL);
   }
 
   function upsertCheckin(habit, day, status, note, late) {
@@ -136,7 +136,7 @@
       const name = text(b.name, 'Name', { max: 40 });
       const username = text(b.username, 'Username', { min: 3, max: 30 }).toLowerCase();
       if (!/^[a-z0-9_.]+$/.test(username)) fail(400, 'Username can only use letters, numbers, _ and .');
-      if (username === 'jake') fail(409, 'That username is taken');
+      if (username === 'king') fail(409, 'That username is taken');
       text(b.password, 'Password', { min: 8 });
       Object.assign(db, fresh(), { me: { id: ME, name, username }, loggedIn: true });
       return { user: db.me };
@@ -163,21 +163,21 @@
     ['POST', /^\/api\/partnerships\/join$/, (b) => {
       const code = text(b.code, 'Invite code', { max: 12 }).toUpperCase();
       if (db.partnership) fail(400, 'The preview holds one pact. Tap Reset to start over.');
-      // Joining in the preview means joining a pact Jake already started.
+      // Joining in the preview means joining a pact King already started.
       const today = localToday();
-      db.partnership = { id: 1, name: 'Jake & ' + db.me.name, stakes: 'Loser buys dinner', invite_code: code, max_members: 2, created_day: today };
-      db.members = [JAKE];
-      addEvent({ actor_id: JAKE, kind: 'created', message: db.partnership.name });
-      addHabit(JAKE, JAKE_SIDE, today);
-      addEvent({ actor_id: JAKE, kind: 'stakes', message: db.partnership.stakes });
-      propose(JAKE, JAKE_PROPOSAL);
+      db.partnership = { id: 1, name: 'King & ' + db.me.name, stakes: 'Loser buys dinner', invite_code: code, max_members: 2, created_day: today };
+      db.members = [KING];
+      addEvent({ actor_id: KING, kind: 'created', message: db.partnership.name });
+      addHabit(KING, KING_SIDE, today);
+      addEvent({ actor_id: KING, kind: 'stakes', message: db.partnership.stakes });
+      propose(KING, KING_PROPOSAL);
       db.members.push(ME);
       addEvent({ actor_id: ME, kind: 'joined' });
       return { partnership: { id: 1, name: db.partnership.name } };
     }],
     ['POST', /^\/api\/demo\/partner-join$/, () => {
       if (!db.partnership) fail(400, 'Start a pact first');
-      jakeJoins(localToday());
+      kingJoins(localToday());
       return { ok: true };
     }],
     ['PATCH', /^\/api\/partnerships\/(\d+)$/, (b, q, m) => {
@@ -231,7 +231,7 @@
       requirePact(b.partnership_id);
       const title = text(b.title, 'Goal', { max: 80 });
       const goal = propose(ME, { title, icon: b.icon, why: text(b.why, 'Why', { required: false }), target_per_week: Number(b.target_per_week) });
-      if (db.members.includes(JAKE)) jakeAgrees(b.today);
+      if (db.members.includes(KING)) kingAgrees(b.today);
       return { goal };
     }],
     ['POST', /^\/api\/goals\/(\d+)\/respond$/, (b, q, m) => {
@@ -245,7 +245,7 @@
       } else if (b.answer === 'decline') {
         goal.status = 'declined';
         addEvent({ actor_id: ME, target_id: goal.proposed_by, kind: 'goal_declined', message: goalLabel(goal) });
-        addEvent({ actor_id: JAKE, target_id: ME, kind: 'nudge', message: 'Fair. Pick one you will actually do then.' });
+        addEvent({ actor_id: KING, target_id: ME, kind: 'nudge', message: 'Fair. Pick one you will actually do then.' });
       } else {
         accept(goal, ME, b.today);
       }
@@ -258,11 +258,11 @@
         db.habits.filter((x) => x.goal_id === h.goal_id && !x.archived_day).forEach((x) => (x.archived_day = b.today));
         db.goals.find((g) => g.id === h.goal_id).status = 'ended';
         addEvent({ actor_id: ME, habit_id: h.id, kind: 'goal_ended' });
-        addEvent({ actor_id: JAKE, target_id: ME, kind: 'nudge', message: 'You ended it for both of us. Noted.' });
+        addEvent({ actor_id: KING, target_id: ME, kind: 'nudge', message: 'You ended it for both of us. Noted.' });
       } else if (b.archived && !h.archived_day) {
         h.archived_day = b.today;
         addEvent({ actor_id: ME, habit_id: h.id, kind: 'habit_archived' });
-        if (db.members.includes(JAKE)) addEvent({ actor_id: JAKE, target_id: ME, habit_id: h.id, kind: 'nudge', message: 'Dropping it already? Noted.' });
+        if (db.members.includes(KING)) addEvent({ actor_id: KING, target_id: ME, habit_id: h.id, kind: 'nudge', message: 'Dropping it already? Noted.' });
       }
       return { ok: true };
     }],
@@ -277,12 +277,12 @@
       const note = text(b.note, 'Note', { max: 280, required: false });
       if (b.status === 'missed' && !note) fail(400, 'Own the miss: say what got in the way');
       const c = upsertCheckin(h, day, b.status, note, day !== today ? 1 : 0);
-      if (db.members.includes(JAKE)) {
-        const reacted = db.events.some((e) => e.actor_id === JAKE && e.habit_id === h.id && e.kind === 'cheer' && e.created_at.slice(0, 10) === now().slice(0, 10));
+      if (db.members.includes(KING)) {
+        const reacted = db.events.some((e) => e.actor_id === KING && e.habit_id === h.id && e.kind === 'cheer' && e.created_at.slice(0, 10) === now().slice(0, 10));
         if (b.status === 'done' && !reacted) {
-          addEvent({ actor_id: JAKE, target_id: ME, habit_id: h.id, kind: 'cheer', message: pick(['Let’s go', 'That’s what I’m talking about', 'Keep stacking']) });
+          addEvent({ actor_id: KING, target_id: ME, habit_id: h.id, kind: 'cheer', message: pick(['Let’s go', 'That’s what I’m talking about', 'Keep stacking']) });
         } else if (b.status === 'missed') {
-          addEvent({ actor_id: JAKE, target_id: ME, habit_id: h.id, kind: 'nudge', message: 'Respect for owning it. Tomorrow though.' });
+          addEvent({ actor_id: KING, target_id: ME, habit_id: h.id, kind: 'nudge', message: 'Respect for owning it. Tomorrow though.' });
         }
       }
       return { checkin: c };
@@ -300,17 +300,17 @@
     }],
     ['POST', /^\/api\/partnerships\/(\d+)\/nudges$/, (b, q, m) => {
       requirePact(m[1]);
-      if (Number(b.to_user_id) !== JAKE) fail(400, "You can't nudge yourself. That's what the app is for.");
+      if (Number(b.to_user_id) !== KING) fail(400, "You can't nudge yourself. That's what the app is for.");
       const habitId = b.habit_id ? Number(b.habit_id) : null;
-      addEvent({ actor_id: ME, target_id: JAKE, habit_id: habitId, kind: b.kind, message: text(b.message, 'Message', { max: 280, required: false }) });
-      // Jake responds: a nudge gets him to actually do it.
+      addEvent({ actor_id: ME, target_id: KING, habit_id: habitId, kind: b.kind, message: text(b.message, 'Message', { max: 280, required: false }) });
+      // King responds: a nudge gets him to actually do it.
       const today = localToday();
       const h = db.habits.find((x) => x.id === habitId);
       const doneToday = h && db.checkins.some((c) => c.habit_id === h.id && c.day === today && c.status === 'done');
       if (b.kind === 'nudge' && h && !doneToday) {
         upsertCheckin(h, today, 'done', pick(['Fine. Did it. Happy?', 'Doing it now. Relax.', 'Done. You owe me a coffee for the stress.']), 0);
       } else {
-        addEvent({ actor_id: JAKE, target_id: ME, kind: 'cheer', message: pick(['Appreciate it', 'Now do yours', 'Right back at you']) });
+        addEvent({ actor_id: KING, target_id: ME, kind: 'cheer', message: pick(['Appreciate it', 'Now do yours', 'Right back at you']) });
       }
       return { ok: true };
     }],
@@ -329,18 +329,18 @@
     fail(404, 'Not in the preview');
   };
 
-  // Skip sign-up and pact setup: start signed in as Hank, in a pact Jake has
-  // just joined. Jake brings a side goal and proposes a shared one.
+  // Skip sign-up and pact setup: start signed in as Hank, in a pact King has
+  // just joined. King brings a side goal and proposes a shared one.
   function ready() {
     db = fresh();
     const today = localToday();
     db.me = { id: ME, name: 'Hank', username: 'hank' };
     db.loggedIn = true;
-    db.partnership = { id: 1, name: 'Hank & Jake', stakes: 'Loser buys dinner', invite_code: inviteCode(), max_members: 2, created_day: today };
+    db.partnership = { id: 1, name: 'Hank & King', stakes: 'Loser buys dinner', invite_code: inviteCode(), max_members: 2, created_day: today };
     db.members = [ME];
     addEvent({ actor_id: ME, kind: 'created', message: db.partnership.name });
     addEvent({ actor_id: ME, kind: 'stakes', message: db.partnership.stakes });
-    jakeJoins(today);
+    kingJoins(today);
     db.lastSeen = 0;
     save();
   }

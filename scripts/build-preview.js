@@ -36,7 +36,7 @@ ${read('public/styles.css')}
 .preview-bar strong { color: var(--ink); }
 </style>
 <div class="preview-bar">
-  <span><strong>Preview.</strong> You're Hank, and Jake is simulated. Reset starts over.</span>
+  <span><strong>Preview.</strong> You're Hank, and King is simulated. Reset starts over.</span>
   <button class="btn small" id="preview-reset" type="button">Reset</button>
 </div>
 <main id="app" aria-live="polite"></main>
