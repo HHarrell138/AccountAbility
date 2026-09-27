@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS goals (
   unit             TEXT NOT NULL DEFAULT '',
   step             REAL NOT NULL DEFAULT 0,
   amount_period    TEXT NOT NULL DEFAULT 'day',
+  -- 1: agreed as a habit, but each partner sets their own number
+  -- (protein, calories). The title and daily_amount then live per habit.
+  personal         INTEGER NOT NULL DEFAULT 0,
   status           TEXT NOT NULL DEFAULT 'proposed'
                    CHECK (status IN ('proposed', 'active', 'declined', 'withdrawn', 'ended')),
   created_at       TEXT NOT NULL DEFAULT ${NOW},
@@ -135,6 +138,7 @@ function migrate(db) {
   if (!habitCols.includes('schedule')) db.exec("ALTER TABLE habits ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
   const goalCols = db.prepare('PRAGMA table_info(goals)').all().map((c) => c.name);
   if (!goalCols.includes('schedule')) db.exec("ALTER TABLE goals ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
+  if (!goalCols.includes('personal')) db.exec('ALTER TABLE goals ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');
   for (const [table, cols] of [['habits', habitCols], ['goals', goalCols]]) {
     if (!cols.includes('daily_amount')) db.exec(`ALTER TABLE ${table} ADD COLUMN daily_amount REAL NOT NULL DEFAULT 0`);
     if (!cols.includes('unit')) db.exec(`ALTER TABLE ${table} ADD COLUMN unit TEXT NOT NULL DEFAULT ''`);

@@ -46,9 +46,9 @@
     // `track` = log as you go: the + button adds `step` of `unit` to today's total.
     { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'} a week`, amount: 15, min: 1, unit: 'miles a week', track: { unit: 'mi', step: 1, period: 'week' } },
     { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7, track: { unit: 'oz', step: 8, per: 128 } }, // goal set in gallons, logged in ounces
-    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7, track: { unit: 'g', step: 0 } }, // 0: type the grams each time
-    { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7, track: { unit: 'cal', step: 100 } },
-    { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, min: 500, unit: 'calories', days: 6 },
+    { key: 'protein', icon: 'protein', label: 'Protein', personal: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7, track: { unit: 'g', step: 0 } }, // 0: type the grams each time
+    { key: 'calories', icon: 'calories', label: 'Hit calories', personal: 'Calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7, track: { unit: 'cal', step: 100 } },
+    { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', personal: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, min: 500, unit: 'calories', days: 6 },
     { key: 'workout', icon: 'workout', label: 'Workout', title: () => 'Work out', days: 4 },
     { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, min: 500, unit: 'steps', days: 5 },
     { key: 'read', icon: 'read', label: 'Read', title: (n) => `Read ${n} pages`, amount: 20, min: 1, unit: 'pages', days: 5 },
@@ -57,6 +57,16 @@
     { key: 'prayer', icon: 'prayer', label: 'Prayer', title: () => 'Dedicated prayer', days: 7 },
     { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
   ];
+
+  // `personal` presets: agreed as a habit, but each person sets their own number
+  // (a 130 lb and a 200 lb person shouldn't share a protein target).
+  const personalPreset = (icon) => PRESETS.find((p) => p.personal && p.icon === icon);
+  // Someone's number on a personal goal, in the units the form asks for.
+  const ownNumber = (x) => {
+    const p = personalPreset(x.icon);
+    if (x.daily_amount > 0) return x.daily_amount / (p?.track?.per || 1);
+    return Number(String(x.title).replace(/[^0-9.]/g, '')) || p?.amount || 0;
+  };
 
   const state = {
     user: null,
@@ -490,16 +500,19 @@
                 <p class="small muted">${mine ? `You proposed. ${partner ? `Waiting on ${esc(partner.name)}.` : 'Waiting for your partner to join.'}` : `${nameOf(g.proposed_by)} wants you both to`}</p>
                 <p class="proposal-title">${esc(g.title)}</p>
                 <p class="small muted">${g.schedule ? `${mine ? 'Your' : `${nameOf(g.proposed_by)}'s`} times: ` : ''}${esc(cadence(g))}${g.why ? ` · ${esc(g.why)}` : ''}</p>
+                ${g.personal ? `<p class="small muted">${mine ? `That's your number. ${partner ? esc(partner.name) : 'Your partner'} sets their own.` : `That's ${nameOf(g.proposed_by)}'s number. You set your own.`}</p>` : ''}
                 <div class="row">
                   ${mine
                     ? `<button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="withdraw">Withdraw</button>`
-                    : g.schedule && state.panel?.type === 'accept' && state.panel.goalId === g.id
+                    : state.panel?.type === 'accept' && state.panel.goalId === g.id
                       ? ''
-                      : `<button class="btn small primary" data-action="${g.schedule ? 'open-accept' : 'respond'}" data-goal="${g.id}" data-answer="accept">${uiIcon('done')}Agree</button>
+                      : `<button class="btn small primary" data-action="${g.schedule || g.personal ? 'open-accept' : 'respond'}" data-goal="${g.id}" data-answer="accept">${uiIcon('done')}Agree</button>
                        <button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="decline">Pass</button>`}
                 </div>
               </div>
-              ${!mine && g.schedule && state.panel?.type === 'accept' && state.panel.goalId === g.id ? acceptPanel(g, nameOf(g.proposed_by)) : ''}
+              ${!mine && state.panel?.type === 'accept' && state.panel.goalId === g.id
+                ? g.personal ? acceptNumberPanel(g, nameOf(g.proposed_by)) : g.schedule ? acceptPanel(g, nameOf(g.proposed_by)) : ''
+                : ''}
             </div>`;
           })
           .join('')}
@@ -518,6 +531,48 @@
           <button class="btn" type="button" data-action="close-panel">Cancel</button>
         </div>
       </form>`;
+  }
+
+  // Agreeing to a protein/calorie goal: pick your own number first.
+  function acceptNumberPanel(g, proposer) {
+    return numberForm('accept-number', `data-goal="${g.id}"`, g,
+      `You're agreeing to the habit, not ${proposer}'s number. Set yours. ${proposer} keeps theirs.`,
+      `${uiIcon('done')}Agree with my number`);
+  }
+
+  // The number field for a personal goal, with a live title preview.
+  function numberForm(name, attrs, x, note, submit) {
+    const p = personalPreset(x.icon);
+    const n = ownNumber(x);
+    return `
+      <form class="panel accept-panel" data-form="${name}" ${attrs} data-preset="${p.key}">
+        ${note ? `<p class="small">${note}</p>` : ''}
+        <label for="${name}-${x.id}">Your number <span class="muted">(${esc(p.unit)})</span>
+          <input id="${name}-${x.id}" name="amount" type="number" inputmode="decimal" min="${p.min}" step="any" value="${n}" required data-action="preset-amount" data-autofocus>
+        </label>
+        <p class="preview-title">${iconSvg(p.icon)}<span data-role="preview">${esc(p.title(n))}</span></p>
+        <div class="row">
+          <button class="btn primary" type="submit">${submit}</button>
+          <button class="btn" type="button" data-action="close-panel">Cancel</button>
+        </div>
+      </form>`;
+  }
+
+  // Your number under a personal goal's row, with Edit number on your own.
+  function numberRow(h, shared) {
+    if (!personalPreset(h.icon)) return '';
+    if (state.panel?.type === 'edit-number' && state.panel.habitId === h.id) {
+      return numberForm('edit-number', `data-habit="${h.id}"`, h, shared ? 'Your partner will see your new number.' : '', 'Save number');
+    }
+    const mine = isMe(h.user_id) && !h.archived_day;
+    if (!shared && !mine) return '';
+    // Logged goals already show the number ("0 / 180g today"), with Edit number beside Tap size.
+    if (tracked(h)) return '';
+    return `
+      <div class="row-sched">
+        ${uiIcon('flame')}<span>${esc(h.title)}</span>
+        ${mine ? `<button class="link" data-action="edit-number" data-habit="${h.id}">Edit number</button>` : ''}
+      </div>`;
   }
 
   // One person's week on one habit.
@@ -595,7 +650,7 @@
     return `<div class="subline">${bits.join('')}</div>`;
   }
 
-  function trackerRow(h, person) {
+  function trackerRow(h, person, personal) {
     const w = habitWeek(h);
     const missOpen = state.panel && state.panel.type === 'miss' && state.panel.habitId === h.id;
     return `
@@ -606,6 +661,7 @@
         ${subline(h, w, person)}
         ${tracked(h) ? amountRow(h) : ''}
         ${schedRow(h)}
+        ${personal !== undefined ? numberRow(h, personal) : ''}
         ${missOpen ? missPanel(h) : ''}
       </div>`;
   }
@@ -714,13 +770,15 @@
     return `
       <article class="card goal ${open ? 'is-open' : ''}" id="g-${g.id}">
         <div class="goal-hit" data-action="toggle-goal" data-goal="${g.id}">
-          ${cardHead(g.icon, g.title, g.schedule ? 'Both of you · each on your own times' : `Both of you · ${esc(cadence(g))}`, g.why)}
+          ${g.personal
+            ? cardHead(g.icon, personalPreset(g.icon)?.personal || g.title, `Both of you · your own numbers · ${g.target_per_week}x a week`, g.why)
+            : cardHead(g.icon, g.title, g.schedule ? 'Both of you · each on your own times' : `Both of you · ${esc(cadence(g))}`, g.why)}
           ${mine ? proratedNote(mine) : ''}
         </div>
         <div class="tracker">
           ${dayHeader()}
-          ${mine ? trackerRow(mine, d.members.find((m) => isMe(m.id))) : ''}
-          ${open ? others.map(({ m, h }) => trackerRow(h, m)).join('') : ''}
+          ${mine ? trackerRow(mine, d.members.find((m) => isMe(m.id)), g.personal ? true : undefined) : ''}
+          ${open ? others.map(({ m, h }) => trackerRow(h, m, g.personal ? true : undefined)).join('') : ''}
         </div>
         ${compare}
         ${mine && open ? endControl(mine, true) : ''}
@@ -738,7 +796,7 @@
         ${proratedNote(h)}
         <div class="tracker">
           ${dayHeader()}
-          ${trackerRow(h, person)}
+          ${trackerRow(h, person, false)}
         </div>
         ${mine ? endControl(h, false) : ''}
       </article>`;
@@ -773,6 +831,7 @@
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
                </label>
                <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.amount))}</span></p>
+               ${shared && preset.personal ? `<p class="small muted">That's your number. ${partnerName} sets their own when they agree.</p>` : ''}
                ${preset.track
                  ? preset.track.step
                    ? `<label for="${kind}-step">Each tap of + adds <span class="muted">(${esc(UNIT_NAMES[preset.track.unit])})</span>
@@ -998,6 +1057,7 @@
           ? `<span class="amount-tools">
                ${got > 0 && h.step > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
                ${h.step > 0 ? `<button class="link" data-action="open-amount" data-where="card" data-habit="${h.id}">Add…</button>` : ''}
+               ${personalPreset(h.icon) ? `<button class="link quiet" data-action="edit-number" data-habit="${h.id}">Edit number</button>` : ''}
                <button class="link quiet" data-action="open-step" data-habit="${h.id}">Tap size</button>
              </span>`
           : ''}
@@ -1032,6 +1092,7 @@
       case 'goal_declined': text = `${who} passed on ${goal}.`; break;
       case 'goal_withdrawn': text = `${who} withdrew ${goal}.`; break;
       case 'goal_ended': text = `${who} ended the shared goal ${habit}.`; break;
+      case 'amount_changed': text = `${who} set a new number: ${goal}.`; break;
       case 'schedule_changed': text = `${who} changed the wake-up times on ${habit}.`; break;
       case 'nudge': text = `${who} nudged ${whom}${habit ? ` about ${habit}` : ''}.${note}`; break;
       case 'cheer': text = `${who} cheered ${whom}${habit ? ` on ${habit}` : ''}.${note}`; break;
@@ -1135,6 +1196,7 @@
         why: f.why.value,
         target_per_week: schedule ? Object.keys(schedule).length : f.target_per_week ? Number(f.target_per_week.value) : 1,
         schedule,
+        personal: shared && !!preset.personal,
         ...(preset.track
           ? {
               daily_amount: Number(f.amount.value) * (preset.track.per || 1),
@@ -1158,6 +1220,20 @@
       state.addOpen = null;
       state.preset = null;
       toast('Agreed. You’re both on it, each on your own times.');
+      await refresh();
+    },
+    async 'accept-number'(f) {
+      await api('POST', `/api/goals/${f.dataset.goal}/respond`, { answer: 'accept', ...numberBody(f), today: localToday() });
+      state.panel = null;
+      state.addOpen = null;
+      state.preset = null;
+      toast('Agreed. You’re both on it, each with your own number.');
+      await refresh();
+    },
+    async 'edit-number'(f) {
+      await api('PATCH', `/api/habits/${f.dataset.habit}`, { personal: numberBody(f), today: localToday() });
+      state.panel = null;
+      toast('Number saved.');
       await refresh();
     },
     async 'edit-sched'(f) {
@@ -1190,6 +1266,14 @@
     },
   };
 
+  // { title, daily_amount } from a personal-number form.
+  function numberBody(f) {
+    const p = PRESETS.find((x) => x.key === f.dataset.preset);
+    const title = presetTitle(p, f.amount.value);
+    if (!title) throw new Error(`Enter how many ${p.unit}`);
+    return { title, ...(p.track ? { daily_amount: Number(f.amount.value) * (p.track.per || 1) } : {}) };
+  }
+
   const actions = {
     'auth-mode'(el) {
       state.authMode = el.dataset.mode;
@@ -1210,6 +1294,10 @@
     },
     'open-accept'(el) {
       state.panel = { type: 'accept', goalId: Number(el.dataset.goal) };
+      render();
+    },
+    'edit-number'(el) {
+      state.panel = { type: 'edit-number', habitId: Number(el.dataset.habit) };
       render();
     },
     'edit-sched'(el) {

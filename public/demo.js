@@ -9,12 +9,12 @@
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v9';
+  const KEY = 'aa.demo.v10';
   const ME = 1;
   const KING = 2;
   const KING_USER = { id: KING, name: 'King', username: 'king' };
   const KING_SIDE = { title: 'Work out', icon: 'workout', why: 'Stay strong for the season', target_per_week: 4 };
-  const KING_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6, daily_amount: 128, unit: 'oz', step: 8 };
+  const KING_PROPOSAL = { title: 'Eat 130g of protein', icon: 'protein', why: 'Actually put on some size this summer', target_per_week: 7, daily_amount: 130, unit: 'g', step: 0, personal: 1 };
 
   function localToday() {
     const d = new Date();
@@ -98,6 +98,7 @@
       out.schedule = JSON.stringify(sched);
       out.target_per_week = Object.keys(sched).length;
     }
+    out.personal = b.personal ? 1 : 0;
     if (b.daily_amount) {
       const amount = Number(b.daily_amount);
       const step = Number(b.step);
@@ -116,26 +117,47 @@
   const goalLabel = (g) => `${g.title} (${g.target_per_week}x / week)`;
 
   function propose(userId, g) {
-    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', daily_amount: g.daily_amount || 0, unit: g.unit || '', step: g.step || 0, amount_period: g.amount_period || 'day', status: 'proposed' };
+    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', daily_amount: g.daily_amount || 0, unit: g.unit || '', step: g.step || 0, amount_period: g.amount_period || 'day', personal: g.personal ? 1 : 0, status: 'proposed' };
     db.goals.push(goal);
     addEvent({ actor_id: userId, kind: 'goal_proposed', message: goalLabel(goal) });
     return goal;
   }
 
-  // A scheduled goal: whoever agrees brings their own times; the proposer keeps theirs.
-  function accept(goal, byUser, today, ownSchedule) {
+  // Your own number on a personal goal (protein, calories), like the server.
+  function personalFields(b, base) {
+    const title = b.title === undefined ? base.title : text(b.title, 'Goal', { max: 80 });
+    if (!(base.daily_amount > 0) || b.daily_amount === undefined) return { title, daily_amount: base.daily_amount };
+    const amount = Number(b.daily_amount);
+    if (!(amount > 0) || amount > 100000) fail(400, 'Enter your number');
+    return { title, daily_amount: Math.round(amount * 100) / 100 };
+  }
+
+  // A scheduled goal: whoever agrees brings their own times; the proposer keeps
+  // theirs. A personal goal works the same way with the number.
+  function accept(goal, byUser, today, ownSchedule, own) {
     goal.status = 'active';
     db.members.forEach((uid) => {
       const schedule = uid === byUser && goal.schedule ? ownSchedule || goal.schedule : goal.schedule;
       const target = schedule ? Object.keys(JSON.parse(schedule)).length : goal.target_per_week;
-      addHabit(uid, { ...goal, schedule, target_per_week: target }, today, goal.id);
+      const mine = uid === byUser && goal.personal && own ? own : { title: goal.title, daily_amount: goal.daily_amount };
+      const step = Math.min(goal.step, mine.daily_amount || goal.step);
+      addHabit(uid, { ...goal, ...mine, step, schedule, target_per_week: target }, today, goal.id);
     });
     addEvent({ actor_id: byUser, target_id: goal.proposed_by, kind: 'goal_accepted', message: goalLabel(goal) });
   }
 
+  // King's own numbers, used when he agrees to a protein or calorie goal.
+  const KING_NUMBERS = {
+    protein: { title: 'Eat 130g of protein', daily_amount: 130 },
+    calories: { title: 'Eat at least 2,200 calories', daily_amount: 2200 },
+    'calorie-cap': { title: 'Stay under 1,800 calories' },
+  };
+
   // King says yes to anything you've proposed.
   function kingAgrees(today) {
-    db.goals.filter((g) => g.status === 'proposed' && g.proposed_by === ME).forEach((g) => accept(g, KING, today, KING_WAKE));
+    db.goals
+      .filter((g) => g.status === 'proposed' && g.proposed_by === ME)
+      .forEach((g) => accept(g, KING, today, KING_WAKE, g.personal ? personalFields(KING_NUMBERS[g.icon] || {}, g) : null));
   }
 
   function kingJoins(today) {
@@ -308,7 +330,7 @@
         addEvent({ actor_id: ME, target_id: goal.proposed_by, kind: 'goal_declined', message: goalLabel(goal) });
         addEvent({ actor_id: KING, target_id: ME, kind: 'nudge', message: 'Fair. Pick one you will actually do then.' });
       } else {
-        accept(goal, ME, b.today, goal.schedule ? fields({ title: goal.title, schedule: b.schedule }).schedule : '');
+        accept(goal, ME, b.today, goal.schedule ? fields({ title: goal.title, schedule: b.schedule }).schedule : '', goal.personal ? personalFields(b, goal) : null);
       }
       return { ok: true };
     }],
@@ -320,6 +342,16 @@
         if (!(h.daily_amount > 0)) fail(400, 'That goal is not logged by amount');
         if (!(step >= 0) || step > h.daily_amount) fail(400, 'Each tap must add something between 0 and the daily amount');
         h.step = Math.round(step * 100) / 100;
+      }
+      if (b.personal !== undefined) {
+        if (h.archived_day) fail(400, 'That goal has ended');
+        const goal = h.goal_id ? db.goals.find((g) => g.id === h.goal_id) : null;
+        if (goal && !goal.personal) fail(400, 'You both agreed on that number; propose a new goal to change it');
+        const own = personalFields(b.personal || {}, h);
+        if (own.title !== h.title || own.daily_amount !== h.daily_amount) {
+          Object.assign(h, own, { step: Math.min(h.step, own.daily_amount || h.step) });
+          addEvent({ actor_id: ME, habit_id: h.id, kind: 'amount_changed', message: own.title });
+        }
       }
       if (b.schedule !== undefined) {
         if (!h.schedule) fail(400, 'That goal has no schedule');

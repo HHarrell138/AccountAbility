@@ -429,6 +429,18 @@ function createApp({ dbFile = ':memory:' } = {}) {
         }
       });
     }
+    // Change your own number (protein, calories). Allowed on side goals and on
+    // shared goals agreed as personal; your partner sees that you changed it.
+    if (body.personal !== undefined) {
+      if (h.archived_day) fail(400, 'That goal has ended');
+      const goal = h.goal_id ? q('SELECT * FROM goals WHERE id = ?').get(h.goal_id) : null;
+      if (goal && !goal.personal) fail(400, 'You both agreed on that number; propose a new goal to change it');
+      const own = personalFields(body.personal || {}, h);
+      if (own.title !== h.title || own.daily_amount !== h.daily_amount) {
+        q('UPDATE habits SET title = ?, daily_amount = ?, step = MIN(step, ?) WHERE id = ?').run(own.title, own.daily_amount, own.daily_amount || 1e9, h.id);
+        addEvent({ partnership_id: h.partnership_id, actor_id: user.id, habit_id: h.id, kind: 'amount_changed', message: own.title });
+      }
+    }
     // Change what one tap of + adds (0 = ask each time). Just a convenience,
     // so no feed entry.
     if (body.step !== undefined) {
@@ -452,15 +464,26 @@ function createApp({ dbFile = ':memory:' } = {}) {
     return { ok: true };
   });
 
+  // Your own number on a personal goal: the title that states it ("Eat 130g of
+  // protein") and, for logged goals, the daily amount. Missing values fall back
+  // to the proposer's.
+  function personalFields(body, base) {
+    const title = body.title === undefined ? base.title : str(body.title, 'Goal', { max: 80 });
+    if (!(base.daily_amount > 0) || body.daily_amount === undefined) return { title, daily_amount: base.daily_amount };
+    const amount = Number(body.daily_amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) fail(400, 'Enter your number');
+    return { title, daily_amount: round2(amount) };
+  }
+
   route('POST', '/api/goals', ({ user, body }) => {
     const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
     const { title, why, target, icon, schedule, daily_amount, unit, step, amount_period } = habitFields(body);
     const { open } = q(`SELECT COUNT(*) AS open FROM goals WHERE partnership_id = ? AND status IN ('proposed', 'active')`).get(p.id);
     if (open >= 10) fail(400, 'Ten shared goals is plenty. End one first.');
     const goal = q(
-      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week, schedule, daily_amount, unit, step, amount_period)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, icon, target, schedule, daily_amount, unit, step, amount_period);
+      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week, schedule, daily_amount, unit, step, amount_period, personal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, icon, target, schedule, daily_amount, unit, step, amount_period, body.personal ? 1 : 0);
     addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'goal_proposed', message: `${title} (${target}x / week)` });
     return { goal };
   });
@@ -491,14 +514,20 @@ function createApp({ dbFile = ':memory:' } = {}) {
       // A scheduled goal (wake-up times) is agreed as a habit, not as times:
       // whoever agrees brings their own schedule. The proposer keeps theirs.
       const ownSchedule = goal.schedule ? parseSchedule(body.schedule) || goal.schedule : '';
+      // A personal-number goal (protein, calories) works the same way: whoever
+      // agrees brings their own number and the title that goes with it.
+      const own = goal.personal ? personalFields(body, goal) : { title: goal.title, daily_amount: goal.daily_amount };
       q(`UPDATE goals SET status = 'active', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(goal.id);
       for (const uid of memberIds(goal.partnership_id)) {
-        const schedule = uid === user.id ? ownSchedule : goal.schedule;
+        const mine = uid === user.id;
+        const schedule = mine ? ownSchedule : goal.schedule;
         const target = schedule ? Object.keys(JSON.parse(schedule)).length : goal.target_per_week;
+        const title = mine ? own.title : goal.title;
+        const amount = mine ? own.daily_amount : goal.daily_amount;
         q(
           `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, goal_id, created_day)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(goal.partnership_id, uid, goal.title, goal.why, target, goal.icon, schedule, goal.daily_amount, goal.unit, goal.step, goal.amount_period, goal.id, today);
+        ).run(goal.partnership_id, uid, title, goal.why, target, goal.icon, schedule, amount, goal.unit, Math.min(goal.step, amount || goal.step), goal.amount_period, goal.id, today);
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
       return { ok: true };

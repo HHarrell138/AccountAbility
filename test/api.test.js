@@ -409,3 +409,47 @@ test('weekly amount target scales the week a goal starts', () => {
   assert.equal(L.weeklyAmountTarget(h, '2026-09-21'), 4); // 2 of 7 days
   assert.equal(L.weeklyAmountTarget(h, '2026-09-28'), 14);
 });
+
+test('personal numbers: each partner sets their own protein goal', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const a = client(base);
+  const b = client(base);
+  await a('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await b('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
+  const { id: pid, invite_code } = (await a('POST', '/api/partnerships', { today })).data.partnership;
+  await b('POST', '/api/partnerships/join', { code: invite_code });
+  const hankId = (await a('GET', '/api/me')).data.user.id;
+  const kingId = (await b('GET', '/api/me')).data.user.id;
+
+  const goal = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Eat 180g of protein', icon: 'protein', target_per_week: 7, daily_amount: 180, unit: 'g', step: 0, personal: true, today })).data.goal;
+  assert.equal(goal.personal, 1);
+  assert.equal((await b('POST', `/api/goals/${goal.id}/respond`, { answer: 'accept', title: 'Eat 130g of protein', daily_amount: 130, today })).status, 200);
+
+  let dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  const mine = dash.habits.find((h) => h.goal_id === goal.id && h.user_id === hankId);
+  const his = dash.habits.find((h) => h.goal_id === goal.id && h.user_id === kingId);
+  assert.deepEqual([mine.title, mine.daily_amount], ['Eat 180g of protein', 180]);
+  assert.deepEqual([his.title, his.daily_amount], ['Eat 130g of protein', 130]);
+
+  // King hits his own 130 g; that's done for him even though Hank's is 180.
+  assert.equal((await b('POST', '/api/amounts', { habit_id: his.id, delta: 130, today })).data.done, true);
+  assert.equal((await a('POST', '/api/amounts', { habit_id: mine.id, delta: 130, today })).data.done, false);
+
+  // Changing your number is on the record.
+  assert.equal((await a('PATCH', `/api/habits/${mine.id}`, { personal: { title: 'Eat 160g of protein', daily_amount: 160 } })).status, 200);
+  dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.habits.find((h) => h.id === mine.id).daily_amount, 160);
+  assert.equal(dash.events[0].kind, 'amount_changed');
+  assert.equal(dash.events[0].message, 'Eat 160g of protein');
+
+  // A regular shared goal's number can't be changed by one person.
+  const water = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 8, today })).data.goal;
+  await b('POST', `/api/goals/${water.id}/respond`, { answer: 'accept', today });
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  const myWater = dash.habits.find((h) => h.goal_id === water.id && h.user_id === hankId);
+  assert.equal((await a('PATCH', `/api/habits/${myWater.id}`, { personal: { title: 'Drink a cup', daily_amount: 8 } })).status, 400);
+});
