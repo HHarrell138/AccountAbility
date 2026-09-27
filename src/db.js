@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS goals (
   icon             TEXT NOT NULL DEFAULT 'check',
   target_per_week  INTEGER NOT NULL CHECK (target_per_week BETWEEN 1 AND 7),
   schedule         TEXT NOT NULL DEFAULT '',
+  daily_amount     REAL NOT NULL DEFAULT 0,
+  unit             TEXT NOT NULL DEFAULT '',
+  step             REAL NOT NULL DEFAULT 0,
   status           TEXT NOT NULL DEFAULT 'proposed'
                    CHECK (status IN ('proposed', 'active', 'declined', 'withdrawn', 'ended')),
   created_at       TEXT NOT NULL DEFAULT ${NOW},
@@ -71,6 +74,11 @@ CREATE TABLE IF NOT EXISTS habits (
   target_per_week  INTEGER NOT NULL CHECK (target_per_week BETWEEN 1 AND 7),
   icon             TEXT NOT NULL DEFAULT 'check',
   schedule         TEXT NOT NULL DEFAULT '',   -- JSON {"mon":"05:30",...}; '' = any days
+  -- Log-as-you-go goals (run 3 mi, 150 g protein): the daily amount that
+  -- counts as done, its unit, and what one tap of the + button adds.
+  daily_amount     REAL NOT NULL DEFAULT 0,
+  unit             TEXT NOT NULL DEFAULT '',
+  step             REAL NOT NULL DEFAULT 0,
   goal_id          INTEGER REFERENCES goals(id) ON DELETE CASCADE,
   created_day      TEXT NOT NULL,
   archived_day     TEXT,
@@ -88,6 +96,15 @@ CREATE TABLE IF NOT EXISTS checkins (
   late        INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL DEFAULT ${NOW},
   UNIQUE (habit_id, day)
+);
+
+-- Running totals for log-as-you-go goals. Reaching daily_amount writes a
+-- 'done' check-in, so scoring and streaks don't need to know about amounts.
+CREATE TABLE IF NOT EXISTS amounts (
+  habit_id  INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+  day       TEXT NOT NULL,
+  amount    REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (habit_id, day)
 );
 
 -- The shared feed: check-ins, nudges, cheers, and anything a partner should see.
@@ -114,6 +131,11 @@ function migrate(db) {
   if (!habitCols.includes('schedule')) db.exec("ALTER TABLE habits ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
   const goalCols = db.prepare('PRAGMA table_info(goals)').all().map((c) => c.name);
   if (!goalCols.includes('schedule')) db.exec("ALTER TABLE goals ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
+  for (const [table, cols] of [['habits', habitCols], ['goals', goalCols]]) {
+    if (!cols.includes('daily_amount')) db.exec(`ALTER TABLE ${table} ADD COLUMN daily_amount REAL NOT NULL DEFAULT 0`);
+    if (!cols.includes('unit')) db.exec(`ALTER TABLE ${table} ADD COLUMN unit TEXT NOT NULL DEFAULT ''`);
+    if (!cols.includes('step')) db.exec(`ALTER TABLE ${table} ADD COLUMN step REAL NOT NULL DEFAULT 0`);
+  }
 }
 
 function openDb(file = ':memory:') {

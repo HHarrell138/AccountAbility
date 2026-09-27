@@ -18,6 +18,7 @@
     steps: '<path d="M3 16V7.5h3.5L8 10l3-1.2 2 3 5.4 1.4A3.4 3.4 0 0 1 21 16.5V17H3z"/><path d="M3 20h18"/><path d="M9.3 11.6l1.2 1.2M11.8 10.8l1.2 1.2"/>',
     read: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
     sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+    run: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"/>',
     wake: '<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2.5 1.5"/><path d="M4 6.5L7 4M20 6.5L17 4"/>',
   };
   const iconSvg = (key) =>
@@ -31,6 +32,7 @@
     bell: '<path d="M6.5 16v-5a5.5 5.5 0 0 1 11 0v5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     chevron: '<path d="M6 9l6 6 6-6"/>',
+    minus: '<path d="M5 12h14"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     flame: ICONS.calories,
     pact: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
@@ -40,9 +42,11 @@
 
   // Presets fill in the goal form. {n} is the amount the person picks.
   const PRESETS = [
-    { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7 },
-    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7 },
-    { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7 },
+    // `track` = log as you go: the + button adds `step` of `unit` to today's total.
+    { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'}`, amount: 3, min: 0.25, unit: 'miles', days: 4, track: { unit: 'mi', step: 1 } },
+    { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7, track: { unit: 'gal', step: 0.25 } },
+    { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7, track: { unit: 'g', step: 10 } },
+    { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7, track: { unit: 'cal', step: 100 } },
     { key: 'calorie-cap', icon: 'calorie-cap', label: 'Calorie cap', title: (n) => `Stay under ${n.toLocaleString()} calories`, amount: 2000, min: 500, unit: 'calories', days: 6 },
     { key: 'workout', icon: 'workout', label: 'Workout', title: () => 'Work out', days: 4 },
     { key: 'steps', icon: 'steps', label: 'Steps', title: (n) => `Walk ${n.toLocaleString()} steps`, amount: 10000, min: 500, unit: 'steps', days: 5 },
@@ -348,13 +352,18 @@
     else meta = [left ? `<strong>${left} left</strong>` : '', missed ? `${missed} missed` : ''].filter(Boolean).join(' · ');
 
     const segments = due
-      .map((i) => `<span class="seg ${i.status === 'done' ? 'done' : i.status === 'missed' ? 'missed' : ''}"></span>`)
+      .map((i) => {
+        const part = i.status === 'todo' && tracked(i.h) ? Math.min(100, Math.round((amountOn(i.h, d.today) / i.h.daily_amount) * 100)) : 0;
+        return `<span class="seg ${i.status === 'done' ? 'done' : i.status === 'missed' ? 'missed' : ''}"${part ? ` style="--pct:${part}%"` : ''}></span>`;
+      })
       .join('');
 
     const rows = items
       .map(({ h, status }) => {
         let control;
-        if (status === 'done') {
+        if (tracked(h) && status !== 'missed') {
+          control = `<button class="tick you sm plus ${status === 'done' ? 'on' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}" aria-label="Add ${esc(fmtAmount(h.step, h.unit))} to ${esc(h.title)}"><span>+${esc(stepLabel(h.step))}</span></button>`;
+        } else if (status === 'done') {
           control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
         } else if (status === 'missed') {
           control = `<span class="tick-mark missed" aria-label="Missed today">${uiIcon('x')}</span>`;
@@ -370,7 +379,7 @@
           <div class="today-row ${status}">
             <button type="button" class="today-name" data-action="jump" data-target="${h.goal_id ? `g-${h.goal_id}` : `h-${h.id}`}">
               <span class="icon-tile sm">${iconSvg(h.icon)}</span>
-              <span class="today-title">${esc(todayTitle(h))}</span>
+              <span class="today-title">${esc(todayTitle(h))}${tracked(h) && status !== 'missed' ? `<span class="today-amount">${esc(fmtAmount(amountOn(h, d.today), ''))} / ${esc(fmtAmount(h.daily_amount, h.unit))}</span>` : ''}</span>
               ${h.goal_id ? '<span class="tag">shared</span>' : ''}
               ${note}
             </button>
@@ -502,9 +511,11 @@
       const day = addDays(start, i);
       const c = byDay.get(day);
       const offDay = sched && !sched[WEEK[i][0]];
-      const cls = ['dot', c ? c.status : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
-      const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : day;
-      return `<span class="${cls}" title="${esc(title)}"></span>`;
+      const got = !c && tracked(h) ? amountOn(h, day) : 0; // partway there: a partly filled dot
+      const cls = ['dot', c ? c.status : '', got ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
+      const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : got ? fmtAmount(got, h.unit) : day;
+      const fill = got ? ` style="--pct:${Math.min(100, Math.round((got / h.daily_amount) * 100))}%"` : '';
+      return `<span class="${cls}" title="${esc(title)}"${fill}></span>`;
     }).join('');
 
     return { done, target, todayC, yesterdayC: byDay.get(addDays(d.today, -1)), outlook, dots };
@@ -520,6 +531,10 @@
   // partner's sends a nudge (or a cheer once they've done it).
   function rowAction(h, w) {
     const d = state.dash;
+    if (isMe(h.user_id) && tracked(h)) {
+      const on = w.todayC?.status === 'done';
+      return `<button class="tick you plus ${on ? 'on' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}" aria-label="Add ${esc(fmtAmount(h.step, h.unit))}"><span>+${esc(stepLabel(h.step))}</span></button>`;
+    }
     if (isMe(h.user_id)) {
       if (w.todayC?.status === 'done') {
         return `<button class="tick you on" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Done today. Tap to undo.">${uiIcon('done')}</button>`;
@@ -555,6 +570,7 @@
         ${w.dots}
         ${rowAction(h, w)}
         ${subline(h, w, person)}
+        ${tracked(h) ? amountRow(h) : ''}
         ${schedRow(h)}
         ${missOpen ? missPanel(h) : ''}
       </div>`;
@@ -718,7 +734,8 @@
             ? `<label for="${kind}-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
                </label>
-               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.amount))}</span></p>`
+               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.amount))}</span></p>
+               ${preset.track ? `<p class="small muted">Log it as you go: each tap of + adds ${fmtAmount(preset.track.step, preset.track.unit)}. Hitting the amount counts as done.</p>` : ''}`
             : `<p class="preview-title">${iconSvg(preset.icon)}<span>${esc(preset.title())}</span></p>`;
       form = `
         <form data-form="goal" data-kind="${kind}" data-preset="${preset.key}">
@@ -833,6 +850,60 @@
     return sched ? schedSummary(sched) : `${x.target_per_week}x a week`;
   };
 
+  // ---------- log-as-you-go amounts ----------
+
+  const tracked = (h) => h.daily_amount > 0;
+
+  function amountOn(h, day) {
+    return state.dash.amounts?.find((a) => a.habit_id === h.id && a.day === day)?.amount || 0;
+  }
+
+  // 2.5 -> "2.5 mi", 2500 -> "2,500 cal"
+  function fmtAmount(n, unit) {
+    const num = Math.round(n * 100) / 100;
+    if (!unit) return num.toLocaleString();
+    return `${num.toLocaleString()}${unit === 'g' ? '' : ' '}${unit}`;
+  }
+
+  // What fits in the round + button: 0.25 -> "¼", 1000 -> "1k".
+  function stepLabel(n) {
+    const frac = { 0.25: '¼', 0.5: '½', 0.75: '¾' }[n];
+    if (frac) return frac;
+    if (n >= 1000) return `${Math.round(n / 100) / 10}k`;
+    return String(Math.round(n * 100) / 100);
+  }
+
+  // "1.5 / 3 mi" plus a bar in the person's color; + / − / Add… on your own.
+  function amountRow(h) {
+    const d = state.dash;
+    const got = amountOn(h, d.today);
+    const pct = Math.min(100, Math.round((got / h.daily_amount) * 100));
+    const mine = isMe(h.user_id) && !h.archived_day;
+    if (mine && state.panel?.type === 'amount' && state.panel.habitId === h.id) {
+      return `
+        <form class="panel" data-form="amount" data-habit="${h.id}">
+          <label for="amount-${h.id}">How much? <span class="muted">(${esc(h.unit)})</span>
+            <input id="amount-${h.id}" name="amount" type="number" inputmode="decimal" step="any" min="0" required data-autofocus>
+          </label>
+          <div class="row">
+            <button class="btn primary" type="submit">Add</button>
+            <button class="btn" type="button" data-action="close-panel">Cancel</button>
+          </div>
+        </form>`;
+    }
+    return `
+      <div class="amount-row ${whoClass(h.user_id)}">
+        <span class="amount-text"><strong>${esc(fmtAmount(got, ''))}</strong> / ${esc(fmtAmount(h.daily_amount, h.unit))} today</span>
+        <span class="bar ${whoClass(h.user_id)}"><span style="width:${pct}%"></span></span>
+        ${mine
+          ? `<span class="amount-tools">
+               ${got > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
+               <button class="link" data-action="open-amount" data-habit="${h.id}">Add…</button>
+             </span>`
+          : ''}
+      </div>`;
+  }
+
   // Title for a preset + amount, with numbers tidied (1.50 -> 1.5).
   function presetTitle(preset, raw) {
     const n = Number(raw);
@@ -894,6 +965,21 @@
     await refresh();
   }
 
+  async function addAmount(habitId, delta) {
+    const h = state.dash.habits.find((x) => x.id === habitId);
+    const res = await api('POST', '/api/amounts', { habit_id: habitId, delta, today: localToday() });
+    const wasDone = state.dash.checkins.some((c) => c.habit_id === habitId && c.day === state.dash.today && c.status === 'done');
+    await refresh();
+    const total = `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}`;
+    toast(res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`, {
+      label: 'Undo',
+      run: async () => {
+        await api('POST', '/api/amounts', { habit_id: habitId, delta: -delta, today: localToday() });
+        await refresh();
+      },
+    });
+  }
+
   async function logDone(habitId, day) {
     await api('POST', '/api/checkins', { habit_id: habitId, day, status: 'done', today: localToday() });
     state.panel = null;
@@ -947,6 +1033,7 @@
         why: f.why.value,
         target_per_week: schedule ? Object.keys(schedule).length : Number(f.target_per_week.value),
         schedule,
+        ...(preset.track ? { daily_amount: Number(f.amount.value), unit: preset.track.unit, step: preset.track.step } : {}),
         today: localToday(),
       });
       state.preset = null;
@@ -971,6 +1058,12 @@
       state.panel = null;
       toast('Times saved.');
       await refresh();
+    },
+    async amount(f) {
+      const n = Number(f.amount.value);
+      if (!Number.isFinite(n) || n <= 0) throw new Error('Enter an amount');
+      state.panel = null;
+      await addAmount(Number(f.dataset.habit), n);
     },
     async miss(f) {
       await api('POST', '/api/checkins', { habit_id: Number(f.dataset.habit), status: 'missed', note: f.note.value, today: localToday() });
@@ -1004,6 +1097,13 @@
     },
     'edit-sched'(el) {
       state.panel = { type: 'edit-sched', habitId: Number(el.dataset.habit) };
+      render();
+    },
+    async 'add-amount'(el) {
+      await addAmount(Number(el.dataset.habit), Number(el.dataset.delta));
+    },
+    'open-amount'(el) {
+      state.panel = { type: 'amount', habitId: Number(el.dataset.habit) };
       render();
     },
     'open-miss'(el) {

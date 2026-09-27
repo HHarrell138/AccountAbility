@@ -9,12 +9,12 @@
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v6';
+  const KEY = 'aa.demo.v7';
   const ME = 1;
   const KING = 2;
   const KING_USER = { id: KING, name: 'King', username: 'king' };
   const KING_SIDE = { title: 'Work out', icon: 'workout', why: 'Stay strong for the season', target_per_week: 4 };
-  const KING_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6 };
+  const KING_PROPOSAL = { title: 'Drink 1 gallon of water', icon: 'water', why: 'Headaches are not a personality', target_per_week: 6, daily_amount: 1, unit: 'gal', step: 0.25 };
 
   function localToday() {
     const d = new Date();
@@ -22,7 +22,7 @@
   }
   const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
-  const fresh = () => ({ me: null, loggedIn: false, partnership: null, members: [], goals: [], habits: [], checkins: [], events: [], lastSeen: 0, nextId: 1 });
+  const fresh = () => ({ me: null, loggedIn: false, partnership: null, members: [], goals: [], habits: [], checkins: [], amounts: [], events: [], lastSeen: 0, nextId: 1 });
 
   let db;
   try {
@@ -74,6 +74,9 @@
       target_per_week: h.target_per_week,
       icon: h.icon || 'check',
       schedule: h.schedule || '',
+      daily_amount: h.daily_amount || 0,
+      unit: h.unit || '',
+      step: h.step || 0,
       goal_id: goalId,
       created_day: today,
       archived_day: null,
@@ -94,6 +97,13 @@
       out.schedule = JSON.stringify(sched);
       out.target_per_week = Object.keys(sched).length;
     }
+    if (b.daily_amount) {
+      const amount = Number(b.daily_amount);
+      const step = Number(b.step);
+      if (!(amount > 0)) fail(400, 'Daily amount must be a positive number');
+      if (!(step > 0) || step > amount) fail(400, 'The + step must be positive and no bigger than the daily amount');
+      Object.assign(out, { daily_amount: amount, unit: text(b.unit, 'Unit', { max: 12 }), step });
+    }
     return out;
   }
 
@@ -103,7 +113,7 @@
   const goalLabel = (g) => `${g.title} (${g.target_per_week}x / week)`;
 
   function propose(userId, g) {
-    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', status: 'proposed' };
+    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', daily_amount: g.daily_amount || 0, unit: g.unit || '', step: g.step || 0, status: 'proposed' };
     db.goals.push(goal);
     addEvent({ actor_id: userId, kind: 'goal_proposed', message: goalLabel(goal) });
     return goal;
@@ -132,6 +142,23 @@
     kingAgrees(today);
     addHabit(KING, KING_SIDE, today);
     propose(KING, KING_PROPOSAL);
+  }
+
+  // Same rules as the server: crossing the daily amount writes Done, dropping
+  // back under it removes that Done.
+  function addAmount(h, day, delta, late = 0) {
+    let row = db.amounts.find((a) => a.habit_id === h.id && a.day === day);
+    if (!row) db.amounts.push((row = { habit_id: h.id, day, amount: 0 }));
+    row.amount = Math.max(0, Math.round((row.amount + delta) * 100) / 100);
+    const c = db.checkins.find((x) => x.habit_id === h.id && x.day === day);
+    if (row.amount >= h.daily_amount && c?.status !== 'done') {
+      upsertCheckin(h, day, 'done', `${row.amount} ${h.unit}`, late);
+      db.checkins.find((x) => x.habit_id === h.id && x.day === day).note = '';
+    } else if (row.amount < h.daily_amount && c?.status === 'done') {
+      db.checkins = db.checkins.filter((x) => x !== c);
+      db.events = db.events.filter((e) => e.checkin_id !== c.id);
+    }
+    return { amount: row.amount, done: row.amount >= h.daily_amount };
   }
 
   function upsertCheckin(habit, day, status, note, late) {
@@ -233,6 +260,7 @@
         members: ids.map(user),
         habits: db.habits.filter((h) => !h.archived_day || h.archived_day > thisWeek),
         checkins: db.checkins.filter((c) => c.day >= recentFrom),
+        amounts: db.amounts.filter((a) => a.day >= recentFrom),
         goals: db.goals.filter((g) => g.status === 'proposed' || g.status === 'active'),
         week: L.scoreWeek(ids, db.habits, db.checkins, thisWeek),
         sharedWeek: L.scoreWeek(ids, shared, db.checkins, thisWeek),
@@ -317,6 +345,15 @@
       }
       return { checkin: c };
     }],
+    ['POST', /^\/api\/amounts$/, (b) => {
+      const h = db.habits.find((x) => x.id === Number(b.habit_id) && x.user_id === ME);
+      if (!h) fail(404, 'Habit not found');
+      if (!(h.daily_amount > 0)) fail(400, 'That goal is not logged by amount');
+      const day = b.day || b.today;
+      const delta = Number(b.delta);
+      if (!Number.isFinite(delta) || delta === 0) fail(400, 'Enter an amount');
+      return addAmount(h, day, delta, day !== b.today ? 1 : 0);
+    }],
     ['POST', /^\/api\/checkins\/undo$/, (b) => {
       const h = db.habits.find((x) => x.id === Number(b.habit_id) && x.user_id === ME);
       if (!h) fail(404, 'Habit not found');
@@ -337,7 +374,9 @@
       const today = localToday();
       const h = db.habits.find((x) => x.id === habitId);
       const doneToday = h && db.checkins.some((c) => c.habit_id === h.id && c.day === today && c.status === 'done');
-      if (b.kind === 'nudge' && h && !doneToday) {
+      if (b.kind === 'nudge' && h && !doneToday && h.daily_amount > 0) {
+        addAmount(h, today, h.daily_amount - (db.amounts.find((a) => a.habit_id === h.id && a.day === today)?.amount || 0));
+      } else if (b.kind === 'nudge' && h && !doneToday) {
         upsertCheckin(h, today, 'done', pick(['Fine. Did it. Happy?', 'Doing it now. Relax.', 'Done. You owe me a coffee for the stress.']), 0);
       } else {
         addEvent({ actor_id: KING, target_id: ME, kind: 'cheer', message: pick(['Appreciate it', 'Now do yours', 'Right back at you']) });
