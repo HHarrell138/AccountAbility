@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS goals (
   daily_amount     REAL NOT NULL DEFAULT 0,
   unit             TEXT NOT NULL DEFAULT '',
   step             REAL NOT NULL DEFAULT 0,
+  amount_period    TEXT NOT NULL DEFAULT 'day',
   status           TEXT NOT NULL DEFAULT 'proposed'
                    CHECK (status IN ('proposed', 'active', 'declined', 'withdrawn', 'ended')),
   created_at       TEXT NOT NULL DEFAULT ${NOW},
@@ -79,6 +80,9 @@ CREATE TABLE IF NOT EXISTS habits (
   daily_amount     REAL NOT NULL DEFAULT 0,
   unit             TEXT NOT NULL DEFAULT '',
   step             REAL NOT NULL DEFAULT 0,
+  -- 'day': daily_amount each day (150 g protein). 'week': daily_amount is a
+  -- weekly total (15 mi a week); crossing it writes one Done for the week.
+  amount_period    TEXT NOT NULL DEFAULT 'day',
   goal_id          INTEGER REFERENCES goals(id) ON DELETE CASCADE,
   created_day      TEXT NOT NULL,
   archived_day     TEXT,
@@ -135,6 +139,7 @@ function migrate(db) {
     if (!cols.includes('daily_amount')) db.exec(`ALTER TABLE ${table} ADD COLUMN daily_amount REAL NOT NULL DEFAULT 0`);
     if (!cols.includes('unit')) db.exec(`ALTER TABLE ${table} ADD COLUMN unit TEXT NOT NULL DEFAULT ''`);
     if (!cols.includes('step')) db.exec(`ALTER TABLE ${table} ADD COLUMN step REAL NOT NULL DEFAULT 0`);
+    if (!cols.includes('amount_period')) db.exec(`ALTER TABLE ${table} ADD COLUMN amount_period TEXT NOT NULL DEFAULT 'day'`);
   }
 }
 

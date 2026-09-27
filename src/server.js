@@ -15,7 +15,7 @@ const NUDGES_PER_DAY = 10;
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 // Must match the icon keys in public/app.js.
-const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake', 'run'];
+const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake', 'run', 'prayer'];
 const round2 = (n) => Math.round(n * 100) / 100;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -366,23 +366,30 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const icon = body.icon === undefined ? 'check' : body.icon;
     if (!HABIT_ICONS.includes(icon)) fail(400, 'Unknown habit icon');
     const schedule = parseSchedule(body.schedule);
+    const amounts = amountFields(body);
     return {
       title: str(body.title, 'Goal', { max: 80 }),
       why: str(body.why, 'Why', { max: 200, required: false }),
-      target: schedule ? Object.keys(JSON.parse(schedule)).length : int(body.target_per_week, 'Days per week', 1, 7),
+      // A weekly amount goal is "done" once a week: when the total is reached.
+      target:
+        amounts.amount_period === 'week' ? 1
+        : schedule ? Object.keys(JSON.parse(schedule)).length
+        : int(body.target_per_week, 'Days per week', 1, 7),
       icon,
       schedule,
-      ...amountFields(body),
+      ...amounts,
     };
   }
 
   // Optional log-as-you-go settings: daily amount, unit, and + button step.
   // A step of 0 means "ask how much each time" (e.g. grams of protein).
   function amountFields(body) {
-    if (body.daily_amount === undefined || body.daily_amount === null) return { daily_amount: 0, unit: '', step: 0 };
+    if (body.daily_amount === undefined || body.daily_amount === null) return { daily_amount: 0, unit: '', step: 0, amount_period: 'day' };
     const amount = Number(body.daily_amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) fail(400, 'Daily amount must be a positive number');
-    return { daily_amount: round2(amount), unit: str(body.unit, 'Unit', { max: 12 }), step: parseStep(body.step ?? 0, amount) };
+    const period = body.amount_period === undefined ? 'day' : body.amount_period;
+    if (period !== 'day' && period !== 'week') fail(400, 'amount_period must be day or week');
+    return { daily_amount: round2(amount), unit: str(body.unit, 'Unit', { max: 12 }), step: parseStep(body.step ?? 0, amount), amount_period: period };
   }
 
   function parseStep(value, amount) {
@@ -393,14 +400,14 @@ function createApp({ dbFile = ':memory:' } = {}) {
 
   route('POST', '/api/habits', ({ user, body }) => {
     const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
-    const { title, why, target, icon, schedule, daily_amount, unit, step } = habitFields(body);
+    const { title, why, target, icon, schedule, daily_amount, unit, step, amount_period } = habitFields(body);
     const today = clientToday(body.today);
     const { active } = q('SELECT COUNT(*) AS active FROM habits WHERE partnership_id = ? AND user_id = ? AND archived_day IS NULL').get(p.id, user.id);
     if (active >= 10) fail(400, 'Ten habits is plenty. Archive one first.');
     const habit = q(
-      `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, created_day)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, today);
+      `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, created_day)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, amount_period, today);
     addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: `${target}x / week` });
     return { habit };
   });
@@ -446,13 +453,13 @@ function createApp({ dbFile = ':memory:' } = {}) {
 
   route('POST', '/api/goals', ({ user, body }) => {
     const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
-    const { title, why, target, icon, schedule, daily_amount, unit, step } = habitFields(body);
+    const { title, why, target, icon, schedule, daily_amount, unit, step, amount_period } = habitFields(body);
     const { open } = q(`SELECT COUNT(*) AS open FROM goals WHERE partnership_id = ? AND status IN ('proposed', 'active')`).get(p.id);
     if (open >= 10) fail(400, 'Ten shared goals is plenty. End one first.');
     const goal = q(
-      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week, schedule, daily_amount, unit, step)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, icon, target, schedule, daily_amount, unit, step);
+      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week, schedule, daily_amount, unit, step, amount_period)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, icon, target, schedule, daily_amount, unit, step, amount_period);
     addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'goal_proposed', message: `${title} (${target}x / week)` });
     return { goal };
   });
@@ -488,9 +495,9 @@ function createApp({ dbFile = ':memory:' } = {}) {
         const schedule = uid === user.id ? ownSchedule : goal.schedule;
         const target = schedule ? Object.keys(JSON.parse(schedule)).length : goal.target_per_week;
         q(
-          `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, goal_id, created_day)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(goal.partnership_id, uid, goal.title, goal.why, target, goal.icon, schedule, goal.daily_amount, goal.unit, goal.step, goal.id, today);
+          `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, goal_id, created_day)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(goal.partnership_id, uid, goal.title, goal.why, target, goal.icon, schedule, goal.daily_amount, goal.unit, goal.step, goal.amount_period, goal.id, today);
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
       return { ok: true };
@@ -555,9 +562,19 @@ function createApp({ dbFile = ':memory:' } = {}) {
         `INSERT INTO amounts (habit_id, day, amount) VALUES (?, ?, ?)
          ON CONFLICT (habit_id, day) DO UPDATE SET amount = excluded.amount`
       ).run(h.id, day, amount);
-      const c = q('SELECT * FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day);
+      // What counts toward the goal: today's amount, or the week's total.
+      let total = amount;
+      let target = h.daily_amount;
+      let c = q('SELECT * FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day);
+      if (h.amount_period === 'week') {
+        const ws = L.weekStart(day);
+        const we = L.addDays(ws, 6);
+        total = round2(q('SELECT COALESCE(SUM(amount), 0) AS t FROM amounts WHERE habit_id = ? AND day BETWEEN ? AND ?').get(h.id, ws, we).t);
+        target = L.weeklyAmountTarget(h, ws);
+        c = q(`SELECT * FROM checkins WHERE habit_id = ? AND day BETWEEN ? AND ? AND status = 'done'`).get(h.id, ws, we) || c;
+      }
       const late = day !== today ? 1 : 0;
-      if (amount >= h.daily_amount && c?.status !== 'done') {
+      if (total >= target && c?.status !== 'done') {
         const checkin = q(
           `INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, 'done', '', ?)
            ON CONFLICT (habit_id, day) DO UPDATE SET status = 'done', note = '', late = excluded.late
@@ -570,13 +587,13 @@ function createApp({ dbFile = ':memory:' } = {}) {
           habit_id: h.id,
           checkin_id: checkin.id,
           kind: late ? 'done_late' : 'done',
-          message: `${amount} ${h.unit}`,
+          message: `${total} ${h.unit}${h.amount_period === 'week' ? ' this week' : ''}`,
           day,
         });
-      } else if (amount < h.daily_amount && c?.status === 'done') {
+      } else if (total < target && c?.status === 'done') {
         q('DELETE FROM checkins WHERE id = ?').run(c.id);
       }
-      return { amount, done: amount >= h.daily_amount };
+      return { amount, total, done: total >= target };
     });
   });
 

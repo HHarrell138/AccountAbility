@@ -19,6 +19,7 @@
     read: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
     sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     run: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"/>',
+    prayer: '<path d="M12 3.5c-1.6 1.6-2.6 4-2.6 6.8v3.6l-3.2 3.5 2.2 3.1 3.6-3.4z"/><path d="M12 3.5c1.6 1.6 2.6 4 2.6 6.8v3.6l3.2 3.5-2.2 3.1-3.6-3.4z"/>',
     wake: '<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2.5 1.5"/><path d="M4 6.5L7 4M20 6.5L17 4"/>',
   };
   const iconSvg = (key) =>
@@ -43,7 +44,7 @@
   // Presets fill in the goal form. {n} is the amount the person picks.
   const PRESETS = [
     // `track` = log as you go: the + button adds `step` of `unit` to today's total.
-    { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'}`, amount: 3, min: 0.25, unit: 'miles', days: 4, track: { unit: 'mi', step: 1 } },
+    { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'} a week`, amount: 15, min: 1, unit: 'miles a week', track: { unit: 'mi', step: 1, period: 'week' } },
     { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7, track: { unit: 'oz', step: 8, per: 128 } }, // goal set in gallons, logged in ounces
     { key: 'protein', icon: 'protein', label: 'Protein', title: (n) => `Eat ${n}g of protein`, amount: 150, min: 5, unit: 'grams', days: 7, track: { unit: 'g', step: 0 } }, // 0: type the grams each time
     { key: 'calories', icon: 'calories', label: 'Hit calories', title: (n) => `Eat at least ${n.toLocaleString()} calories`, amount: 2500, min: 500, unit: 'calories', days: 7, track: { unit: 'cal', step: 100 } },
@@ -53,6 +54,7 @@
     { key: 'read', icon: 'read', label: 'Read', title: (n) => `Read ${n} pages`, amount: 20, min: 1, unit: 'pages', days: 5 },
     { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, min: 4, unit: 'hours', days: 5 },
     { key: 'wake', icon: 'wake', label: 'Wake up', schedule: { mon: '06:00', tue: '06:00', wed: '06:00', thu: '06:00', fri: '06:00', sat: '08:00', sun: '08:00' } },
+    { key: 'prayer', icon: 'prayer', label: 'Prayer', title: () => 'Dedicated prayer', days: 7 },
     { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
   ];
 
@@ -337,10 +339,12 @@
       const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
       const sched = parseSched(h.schedule);
       const offToday = sched && !sched[dayKey(d.today)];
-      const status = c ? c.status : offToday ? 'off' : scored.get(h.id)?.met ? 'rest' : 'todo';
+      const status = weekly(h)
+        ? weekDone(h) ? 'rest' : 'week'
+        : c ? c.status : offToday ? 'off' : scored.get(h.id)?.met ? 'rest' : 'todo';
       return { h, status };
     });
-    const due = items.filter((i) => i.status !== 'rest' && i.status !== 'off');
+    const due = items.filter((i) => i.status !== 'rest' && i.status !== 'off' && i.status !== 'week');
     const done = due.filter((i) => i.status === 'done').length;
     const missed = due.filter((i) => i.status === 'missed').length;
     const left = due.length - done - missed;
@@ -362,7 +366,7 @@
       .map(({ h, status }) => {
         let control;
         if (tracked(h) && status !== 'missed') {
-          control = plusButton(h, status === 'done', 'today', true);
+          control = plusButton(h, status === 'done' || (weekly(h) && status === 'rest'), 'today', true);
         } else if (status === 'done') {
           control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
         } else if (status === 'missed') {
@@ -379,7 +383,11 @@
           <div class="today-row ${status}">
             <button type="button" class="today-name" data-action="jump" data-target="${h.goal_id ? `g-${h.goal_id}` : `h-${h.id}`}">
               <span class="icon-tile sm">${iconSvg(h.icon)}</span>
-              <span class="today-title">${esc(todayTitle(h))}${tracked(h) && status !== 'missed' ? `<span class="today-amount">${esc(fmtAmount(amountOn(h, d.today), ''))} / ${esc(fmtAmount(h.daily_amount, h.unit))}</span>` : ''}</span>
+              <span class="today-title">${esc(todayTitle(h))}${tracked(h) && status !== 'missed'
+                ? `<span class="today-amount">${weekly(h)
+                    ? `${esc(fmtAmount(weekTotal(h), ''))} / ${esc(fmtAmount(weekTarget(h), h.unit))} this week`
+                    : `${esc(fmtAmount(amountOn(h, d.today), ''))} / ${esc(fmtAmount(h.daily_amount, h.unit))}`}</span>`
+                : ''}</span>
               ${h.goal_id ? '<span class="tag">shared</span>' : ''}
               ${note}
             </button>
@@ -513,7 +521,8 @@
       const c = byDay.get(day);
       const offDay = sched && !sched[WEEK[i][0]];
       const got = !c && tracked(h) ? amountOn(h, day) : 0; // partway there: a partly filled dot
-      const cls = ['dot', c ? c.status : '', got ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
+      const ran = weekly(h) && amountOn(h, day) > 0; // weekly totals: every day you logged fills in
+      const cls = ['dot', c ? c.status : ran ? 'done' : '', got && !ran ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
       const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : got ? fmtAmount(got, h.unit) : day;
       const fill = got ? ` style="--pct:${Math.min(100, Math.round((got / h.daily_amount) * 100))}%"` : '';
       return `<span class="${cls}" title="${esc(title)}"${fill}></span>`;
@@ -533,7 +542,7 @@
   function rowAction(h, w) {
     const d = state.dash;
     if (isMe(h.user_id) && tracked(h)) {
-      return plusButton(h, w.todayC?.status === 'done', 'card');
+      return plusButton(h, weekly(h) ? weekDone(h) : w.todayC?.status === 'done', 'card');
     }
     if (isMe(h.user_id)) {
       if (w.todayC?.status === 'done') {
@@ -548,7 +557,12 @@
   function subline(h, w, person) {
     const d = state.dash;
     const mine = isMe(h.user_id);
-    const bits = [`<strong>${mine ? 'You' : esc(person.name)}</strong>`, `<span class="num">${w.done}/${w.target}</span>`, w.outlook];
+    const bits = [`<strong>${mine ? 'You' : esc(person.name)}</strong>`];
+    if (weekly(h)) {
+      if (weekDone(h)) bits.push('<span class="pill good">target hit</span>');
+      return `<div class="subline">${bits.join('')}</div>`;
+    }
+    bits.push(`<span class="num">${w.done}/${w.target}</span>`, w.outlook);
     if (w.todayC) {
       const note = w.todayC.note ? `: “${esc(w.todayC.note)}”` : '';
       bits.push(`<span class="${w.todayC.status}-text">${w.todayC.status === 'done' ? 'did it today' : 'missed today'}${note}</span>`);
@@ -644,6 +658,10 @@
   }
 
   function proratedNote(h) {
+    if (weekly(h)) {
+      const t = weekTarget(h);
+      return t < h.daily_amount ? `<p class="note-line">First week, so it's ${esc(fmtAmount(t, h.unit))} this week instead of ${esc(fmtAmount(h.daily_amount, h.unit))}.</p>` : '';
+    }
     const w = habitWeek(h);
     return w.target < h.target_per_week ? `<p class="note-line">First week, so it's ${w.target} this week instead of ${h.target_per_week}.</p>` : '';
   }
@@ -714,7 +732,7 @@
     const preset = PRESETS.find((p) => p.key === current);
     const tiles = PRESETS.map(
       (p) => `
-        <button type="button" class="preset ${p.key === 'custom' ? 'wide' : ''} ${p.key === current ? 'on' : ''}" data-action="pick-preset" data-kind="${kind}" data-preset="${p.key}" aria-pressed="${p.key === current}">
+        <button type="button" class="preset  ${p.key === current ? 'on' : ''}" data-action="pick-preset" data-kind="${kind}" data-preset="${p.key}" aria-pressed="${p.key === current}">
           <span class="icon-tile">${iconSvg(p.icon)}</span>
           <span>${esc(p.label)}</span>
         </button>`
@@ -749,7 +767,7 @@
           ${fields}
           <label for="${kind}-why">${shared ? 'Why you’re doing it together' : 'Why it matters'} <span class="muted">(optional)</span>
             <input id="${kind}-why" name="why" maxlength="200" placeholder="${shared ? 'Feel good for the wedding' : 'Content pays for the trip'}"></label>
-          ${preset.schedule
+          ${preset.schedule || preset.track?.period === 'week'
             ? ''
             : `<label for="${kind}-days">Days per week${shared ? ' (for both of you)' : ''}
             <select id="${kind}-days" name="target_per_week">
@@ -853,6 +871,7 @@
 
   // "7x a week", or the schedule when there is one.
   const cadence = (x) => {
+    if (x.amount_period === 'week' && x.daily_amount > 0) return `${fmtAmount(x.daily_amount, x.unit)} a week`;
     const sched = parseSched(x.schedule);
     return sched ? schedSummary(sched) : `${x.target_per_week}x a week`;
   };
@@ -860,6 +879,25 @@
   // ---------- log-as-you-go amounts ----------
 
   const tracked = (h) => h.daily_amount > 0;
+  const weekly = (h) => tracked(h) && h.amount_period === 'week';
+
+  // Weekly amount goals: this week's total and target (scaled the week the
+  // goal started). Mirrors weeklyAmountTarget in src/logic.js.
+  function weekTotal(h) {
+    const start = weekStart(state.dash.today);
+    const end = addDays(start, 6);
+    return (state.dash.amounts || []).filter((a) => a.habit_id === h.id && a.day >= start && a.day <= end).reduce((t, a) => t + a.amount, 0);
+  }
+  function weekTarget(h) {
+    const start = weekStart(state.dash.today);
+    const first = h.created_day > start ? h.created_day : start;
+    const days = Math.round((Date.parse(addDays(start, 6)) - Date.parse(first)) / 86400000) + 1;
+    return days >= 7 ? h.daily_amount : Math.round(((h.daily_amount * days) / 7) * 10) / 10;
+  }
+  function weekDone(h) {
+    const start = weekStart(state.dash.today);
+    return state.dash.checkins.some((c) => c.habit_id === h.id && c.status === 'done' && c.day >= start && c.day <= addDays(start, 6));
+  }
   const UNIT_NAMES = { mi: 'miles', oz: 'ounces', g: 'grams', cal: 'calories', gal: 'gallons' };
 
   // The + button: adds one tap's worth, or opens the how-much box when the
@@ -927,12 +965,14 @@
   function amountRow(h) {
     const d = state.dash;
     const got = amountOn(h, d.today);
-    const pct = Math.min(100, Math.round((got / h.daily_amount) * 100));
+    const total = weekly(h) ? weekTotal(h) : got;
+    const target = weekly(h) ? weekTarget(h) : h.daily_amount;
+    const pct = Math.min(100, Math.round((total / target) * 100));
     const mine = isMe(h.user_id) && !h.archived_day;
     if (mine && panelFor(h, 'card')) return amountPanel(h);
     return `
       <div class="amount-row ${whoClass(h.user_id)}">
-        <span class="amount-text"><strong>${esc(fmtAmount(got, ''))}</strong> / ${esc(fmtAmount(h.daily_amount, h.unit))} today</span>
+        <span class="amount-text"><strong>${esc(fmtAmount(total, ''))}</strong> / ${esc(fmtAmount(target, h.unit))} ${weekly(h) ? `this week${got ? ` · ${esc(fmtAmount(got, h.unit))} today` : ''}` : 'today'}</span>
         <span class="bar ${whoClass(h.user_id)}"><span style="width:${pct}%"></span></span>
         ${mine
           ? `<span class="amount-tools">
@@ -1008,9 +1048,11 @@
   async function addAmount(habitId, delta) {
     const h = state.dash.habits.find((x) => x.id === habitId);
     const res = await api('POST', '/api/amounts', { habit_id: habitId, delta, today: localToday() });
-    const wasDone = state.dash.checkins.some((c) => c.habit_id === habitId && c.day === state.dash.today && c.status === 'done');
+    const wasDone = weekly(h) ? weekDone(h) : state.dash.checkins.some((c) => c.habit_id === habitId && c.day === state.dash.today && c.status === 'done');
     await refresh();
-    const total = `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}`;
+    const total = weekly(h)
+      ? `${fmtAmount(res.total, '')} / ${fmtAmount(weekTarget(h), h.unit)} this week`
+      : `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}`;
     toast(res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`, {
       label: 'Undo',
       run: async () => {
@@ -1071,10 +1113,15 @@
         title,
         icon: preset.icon,
         why: f.why.value,
-        target_per_week: schedule ? Object.keys(schedule).length : Number(f.target_per_week.value),
+        target_per_week: schedule ? Object.keys(schedule).length : f.target_per_week ? Number(f.target_per_week.value) : 1,
         schedule,
         ...(preset.track
-          ? { daily_amount: Number(f.amount.value) * (preset.track.per || 1), unit: preset.track.unit, step: f.step ? Number(f.step.value) : 0 }
+          ? {
+              daily_amount: Number(f.amount.value) * (preset.track.per || 1),
+              unit: preset.track.unit,
+              step: f.step ? Number(f.step.value) : 0,
+              amount_period: preset.track.period || 'day',
+            }
           : {}),
         today: localToday(),
       });

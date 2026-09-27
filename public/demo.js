@@ -9,7 +9,7 @@
 
 (() => {
   const L = window.AALogic;
-  const KEY = 'aa.demo.v8';
+  const KEY = 'aa.demo.v9';
   const ME = 1;
   const KING = 2;
   const KING_USER = { id: KING, name: 'King', username: 'king' };
@@ -77,6 +77,7 @@
       daily_amount: h.daily_amount || 0,
       unit: h.unit || '',
       step: h.step || 0,
+      amount_period: h.amount_period || 'day',
       goal_id: goalId,
       created_day: today,
       archived_day: null,
@@ -102,7 +103,9 @@
       const step = Number(b.step);
       if (!(amount > 0)) fail(400, 'Daily amount must be a positive number');
       if (!(step >= 0) || step > amount) fail(400, 'Each tap must add something between 0 and the daily amount'); // 0 = ask each time
-      Object.assign(out, { daily_amount: amount, unit: text(b.unit, 'Unit', { max: 12 }), step });
+      const period = b.amount_period || 'day';
+      Object.assign(out, { daily_amount: amount, unit: text(b.unit, 'Unit', { max: 12 }), step, amount_period: period });
+      if (period === 'week') out.target_per_week = 1;
     }
     return out;
   }
@@ -113,7 +116,7 @@
   const goalLabel = (g) => `${g.title} (${g.target_per_week}x / week)`;
 
   function propose(userId, g) {
-    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', daily_amount: g.daily_amount || 0, unit: g.unit || '', step: g.step || 0, status: 'proposed' };
+    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', daily_amount: g.daily_amount || 0, unit: g.unit || '', step: g.step || 0, amount_period: g.amount_period || 'day', status: 'proposed' };
     db.goals.push(goal);
     addEvent({ actor_id: userId, kind: 'goal_proposed', message: goalLabel(goal) });
     return goal;
@@ -150,15 +153,25 @@
     let row = db.amounts.find((a) => a.habit_id === h.id && a.day === day);
     if (!row) db.amounts.push((row = { habit_id: h.id, day, amount: 0 }));
     row.amount = Math.max(0, Math.round((row.amount + delta) * 100) / 100);
-    const c = db.checkins.find((x) => x.habit_id === h.id && x.day === day);
-    if (row.amount >= h.daily_amount && c?.status !== 'done') {
-      upsertCheckin(h, day, 'done', `${row.amount} ${h.unit}`, late);
+    // Daily goals count today's amount; weekly ones count the week's total.
+    let total = row.amount;
+    let target = h.daily_amount;
+    let c = db.checkins.find((x) => x.habit_id === h.id && x.day === day);
+    if (h.amount_period === 'week') {
+      const ws = L.weekStart(day);
+      const we = L.addDays(ws, 6);
+      total = Math.round(db.amounts.filter((a) => a.habit_id === h.id && a.day >= ws && a.day <= we).reduce((t, a) => t + a.amount, 0) * 100) / 100;
+      target = L.weeklyAmountTarget(h, ws);
+      c = db.checkins.find((x) => x.habit_id === h.id && x.status === 'done' && x.day >= ws && x.day <= we) || c;
+    }
+    if (total >= target && c?.status !== 'done') {
+      upsertCheckin(h, day, 'done', `${total} ${h.unit}${h.amount_period === 'week' ? ' this week' : ''}`, late);
       db.checkins.find((x) => x.habit_id === h.id && x.day === day).note = '';
-    } else if (row.amount < h.daily_amount && c?.status === 'done') {
+    } else if (total < target && c?.status === 'done') {
       db.checkins = db.checkins.filter((x) => x !== c);
       db.events = db.events.filter((e) => e.checkin_id !== c.id);
     }
-    return { amount: row.amount, done: row.amount >= h.daily_amount };
+    return { amount: row.amount, total, done: total >= target };
   }
 
   function upsertCheckin(habit, day, status, note, late) {

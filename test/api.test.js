@@ -327,23 +327,23 @@ test('log as you go: + adds up, hitting the amount counts as done, taking back u
   assert.equal(run.daily_amount, 3);
   const add = (delta, who = a) => who('POST', '/api/amounts', { habit_id: run.id, delta, today });
 
-  assert.deepEqual((await add(1)).data, { amount: 1, done: false });
-  assert.deepEqual((await add(1.4)).data, { amount: 2.4, done: false });
+  assert.deepEqual((await add(1)).data, { amount: 1, total: 1, done: false });
+  assert.deepEqual((await add(1.4)).data, { amount: 2.4, total: 2.4, done: false });
   let dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.equal(dash.amounts.find((x) => x.habit_id === run.id).amount, 2.4); // partner sees the running total
   assert.ok(!dash.checkins.some((c) => c.habit_id === run.id));
 
-  assert.deepEqual((await add(1)).data, { amount: 3.4, done: true });
+  assert.deepEqual((await add(1)).data, { amount: 3.4, total: 3.4, done: true });
   dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.equal(dash.checkins.find((c) => c.habit_id === run.id).status, 'done');
   assert.equal(dash.events.filter((e) => e.kind === 'done' && e.habit_id === run.id).length, 1);
   assert.equal(dash.events[0].message, '3.4 mi');
 
   // Taking back below the amount removes the Done; never below zero.
-  assert.deepEqual((await add(-1)).data, { amount: 2.4, done: false });
+  assert.deepEqual((await add(-1)).data, { amount: 2.4, total: 2.4, done: false });
   dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.ok(!dash.checkins.some((c) => c.habit_id === run.id));
-  assert.deepEqual((await add(-10)).data, { amount: 0, done: false });
+  assert.deepEqual((await add(-10)).data, { amount: 0, total: 0, done: false });
 
   assert.equal((await add(1, b)).status, 404); // not King's goal
   const plain = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Read', target_per_week: 3, today })).data.habit;
@@ -359,11 +359,52 @@ test('log as you go: + adds up, hitting the amount counts as done, taking back u
   assert.equal((await a('PATCH', `/api/habits/${plain.id}`, { step: 1 })).status, 400);
   const protein = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Eat 150g of protein', icon: 'protein', target_per_week: 7, daily_amount: 150, unit: 'g', step: 0, today })).data.habit;
   assert.equal(protein.step, 0);
-  assert.deepEqual((await a('POST', '/api/amounts', { habit_id: protein.id, delta: 42, today })).data, { amount: 42, done: false });
+  assert.deepEqual((await a('POST', '/api/amounts', { habit_id: protein.id, delta: 42, today })).data, { amount: 42, total: 42, done: false });
 
   // Shared goals carry the amount to both of you.
   const g = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Eat 150g of protein', icon: 'protein', target_per_week: 7, daily_amount: 150, unit: 'g', step: 10, today })).data.goal;
   await b('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
   dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   assert.deepEqual(dash.habits.filter((h) => h.goal_id === g.id).map((h) => [h.daily_amount, h.unit, h.step]), [[150, 'g', 10], [150, 'g', 10]]);
+});
+
+test('weekly run: miles add up across the week, and the total counts once', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const yesterday = L.addDays(today, -1);
+  const a = client(base);
+  await a('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  const { id: pid } = (await a('POST', '/api/partnerships', { today: yesterday })).data.partnership;
+  // Created before this week so the full 15 mi applies.
+  const run = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Run 15 miles a week', icon: 'run', daily_amount: 15, unit: 'mi', step: 1, amount_period: 'week', today })).data.habit;
+  assert.equal(run.target_per_week, 1);
+  assert.equal(run.amount_period, 'week');
+
+  const target = L.weeklyAmountTarget(run, L.weekStart(today)); // scaled if created mid-week
+  const add = (delta) => a('POST', '/api/amounts', { habit_id: run.id, delta, today });
+  let r = (await add(target - 1)).data;
+  assert.equal(r.done, false);
+  r = (await add(1)).data;
+  assert.deepEqual([r.total, r.done], [target, true]);
+  let dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.checkins.filter((c) => c.habit_id === run.id && c.status === 'done').length, 1);
+  assert.equal(dash.week.members[dash.me].habits.find((x) => x.habit_id === run.id).met, true);
+  assert.match(dash.events[0].message, /this week$/);
+
+  // Taking miles back under the weekly total removes the Done.
+  r = (await add(-1)).data;
+  assert.equal(r.done, false);
+  dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.checkins.filter((c) => c.habit_id === run.id).length, 0);
+
+  assert.equal((await a('POST', '/api/habits', { partnership_id: pid, title: 'X', daily_amount: 5, unit: 'mi', step: 1, amount_period: 'month', today })).status, 400);
+});
+
+test('weekly amount target scales the week a goal starts', () => {
+  const h = { daily_amount: 14, created_day: '2026-09-26' }; // a Saturday
+  assert.equal(L.weeklyAmountTarget(h, '2026-09-21'), 4); // 2 of 7 days
+  assert.equal(L.weeklyAmountTarget(h, '2026-09-28'), 14);
 });

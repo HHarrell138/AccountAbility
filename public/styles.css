@@ -352,6 +352,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .icon-tile:has(.i-water) { --tile: var(--c-water-bg); --tint: var(--c-water); }
 .icon-tile:has(.i-protein) { --tile: var(--c-food-bg); --tint: var(--c-food); }
 .icon-tile:has(.i-calories), .icon-tile:has(.i-calorie-cap), .icon-tile:has(.i-wake) { --tile: var(--c-fire-bg); --tint: var(--c-fire); }
+.icon-tile:has(.i-prayer) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
 .icon-tile:has(.i-run) { --tile: var(--c-move-bg); --tint: var(--c-move); }
 .icon-tile:has(.i-sleep), .icon-tile:has(.i-read) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
 .hicon { width: 26px; height: 26px; }
@@ -498,9 +499,6 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   border-radius: 16px;
   cursor: pointer;
 }
-.preset.wide { grid-column: span 2; flex-direction: row; justify-content: center; padding: 8px; }
-.preset.wide .icon-tile { width: 32px; height: 32px; border-radius: 10px; }
-.preset.wide .icon-tile .hicon { width: 20px; height: 20px; }
 .preset.on { border-color: var(--you); background: var(--you-soft); }
 /* wake-up schedule editor */
 .sched { border: 0; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
@@ -522,7 +520,8 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .tick.sm.plus span { font-size: 0.78rem; }
 .tick.plus.long span { font-size: 0.72rem; letter-spacing: -0.04em; }
 .tick.sm.plus.long span { font-size: 0.64rem; }
-.amount-row { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 0.84rem; color: var(--muted); }
+.amount-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; font-size: 0.84rem; color: var(--muted); }
+.amount-row .amount-text { grid-column: 1 / -1; }
 .amount-row strong { color: var(--ink); font: 700 0.95rem var(--font-display); font-variant-numeric: tabular-nums; }
 .amount-row .bar { display: block; height: 8px; }
 .amount-tools { display: inline-flex; gap: 12px; align-items: center; }

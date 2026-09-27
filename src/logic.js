@@ -69,6 +69,15 @@ function availableDays(habit, from, to) {
   return n;
 }
 
+// A weekly amount goal (run 15 mi a week) in the week starting `start`. The
+// week it was created in is scaled to the days left, like effectiveTarget.
+function weeklyAmountTarget(habit, start) {
+  const end = addDays(start, 6);
+  const first = habit.created_day > start ? habit.created_day : start;
+  const days = daysBetween(first, end) + 1;
+  return days >= 7 ? habit.daily_amount : Math.round(((habit.daily_amount * days) / 7) * 10) / 10;
+}
+
 function scoreWeek(memberIds, habits, checkins, start) {
   const end = addDays(start, 6);
   const done = new Map();
@@ -118,6 +127,7 @@ const api = {
   weekStart,
   effectiveTarget,
   availableDays,
+  weeklyAmountTarget,
   scoreWeek,
   pairStreak,
 };
