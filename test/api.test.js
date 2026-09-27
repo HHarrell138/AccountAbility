@@ -74,6 +74,8 @@ test('two people make a pact and hold each other accountable', async (t) => {
   // Jake nudges and cheers; he can't nudge himself.
   assert.equal((await jake('POST', `/api/partnerships/${pid}/nudges`, { kind: 'cheer', to_user_id: habit.user_id, habit_id: habit.id })).status, 200);
   const jakeId = (await jake('GET', '/api/me')).data.user.id;
+  // The pact switcher lists who's in each pact.
+  assert.deepEqual((await jake('GET', '/api/me')).data.partnerships[0].members.map((m) => m.name).sort(), ['Hank', 'Jake']);
   assert.equal((await jake('POST', `/api/partnerships/${pid}/nudges`, { kind: 'nudge', to_user_id: jakeId })).status, 400);
 
   const dash = (await jake('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;

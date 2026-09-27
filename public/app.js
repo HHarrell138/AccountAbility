@@ -271,8 +271,11 @@
           <p class="eyebrow">${esc(prettyDay(d.today))}</p>
           ${pactTitle()}
         </div>
-        <div class="pair">${d.members.map(avatar).join('')}</div>
+        <button type="button" class="pair ${state.pactsOpen ? 'open' : ''}" data-action="toggle-pacts" aria-expanded="${!!state.pactsOpen}" aria-label="Your pacts">
+          ${d.members.map(avatar).join('')}${uiIcon('chevron', 'chev')}
+        </button>
       </header>
+      ${state.pactsOpen ? pactsMenu() : ''}
 
       ${progressCard()}
       ${waiting ? inviteCard() : ''}
@@ -317,10 +320,34 @@
   }
 
   function pactTitle() {
-    if (state.partnerships.length <= 1) return `<h1 class="title">${esc(state.dash.partnership.name)}</h1>`;
-    return `<select class="pact-select title" data-action="switch-pact" aria-label="Switch pact">
-      ${state.partnerships.map((p) => `<option value="${p.id}" ${p.id === state.pid ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
-    </select>`;
+    return `<h1 class="title">${esc(state.dash.partnership.name)}</h1>`;
+  }
+
+  // Tapping your avatars at the top: every pact you're in, and a way to start
+  // or join another.
+  function pactsMenu() {
+    const rows = state.partnerships
+      .map((p) => {
+        const others = (p.members || []).filter((m) => !isMe(m.id));
+        const current = p.id === state.pid;
+        const who = others.length ? `You & ${others.map((m) => esc(m.name)).join(', ')}` : 'Waiting for your partner to join';
+        return `
+          <button type="button" class="pact-row ${current ? 'current' : ''}" data-action="go-pact" data-pid="${p.id}" aria-current="${current}">
+            <span class="pact-avs">${(p.members || []).map(avatar).join('')}</span>
+            <span class="pact-text"><strong>${esc(p.name)}</strong><span class="small muted">${who}</span></span>
+            ${current ? uiIcon('done', 'pact-check') : ''}
+          </button>`;
+      })
+      .join('');
+    return `
+      <section class="card pacts-menu">
+        <h2 class="card-title">Your pacts</h2>
+        <div class="pact-list">${rows}</div>
+        <div class="row">
+          <button class="btn small" data-action="new-pact">${uiIcon('plus')}Start or join another</button>
+          ${window.AA_DEMO ? '' : `<button class="link quiet" data-action="logout">Log out</button>`}
+        </div>
+      </section>`;
   }
 
   function inviteCard() {
@@ -1441,7 +1468,24 @@
       if (!state.partnerships.some((p) => p.id === state.pid)) state.pid = state.partnerships[0].id;
       await refresh();
     },
+    'toggle-pacts'() {
+      state.pactsOpen = !state.pactsOpen;
+      render();
+    },
+    async 'go-pact'(el) {
+      state.pactsOpen = false;
+      const pid = Number(el.dataset.pid);
+      if (pid === state.pid) return render();
+      state.pid = pid;
+      state.panel = null;
+      state.expanded = new Set();
+      store('aa.pid', String(pid));
+      await refresh();
+      window.scrollTo(0, 0);
+    },
     'new-pact'() {
+      if (window.AA_DEMO) throw new Error('The preview is just you and King. Start or join another pact in the live app.');
+      state.pactsOpen = false;
       state.pid = null;
       state.dash = null;
       render();
@@ -1504,12 +1548,6 @@
 
   app.addEventListener('change', (ev) => {
     const el = ev.target;
-    if (el.dataset.action === 'switch-pact') {
-      state.pid = Number(el.value);
-      state.panel = null;
-      store('aa.pid', el.value);
-      guarded(refresh);
-    }
   });
 
   // Keep the partner's side fresh without clobbering anything you're typing.

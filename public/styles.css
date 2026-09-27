@@ -188,9 +188,21 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 
 .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
 .title { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.03em; overflow-wrap: anywhere; }
-.pact-select { width: auto; max-width: 100%; margin: 2px 0 0; padding: 4px 8px; background: transparent; border: 0; font-family: var(--font-display); }
 .lede { color: var(--muted); margin: 8px 0 4px; }
-.pair { display: flex; padding-top: 6px; }
+.pair { display: flex; align-items: center; margin-top: 6px; padding: 4px 6px 4px 4px; background: transparent; border: 0; border-radius: 999px; color: var(--muted); cursor: pointer; }
+.pair:active, .pair.open { background: var(--surface-2); }
+.pair .chev { width: 16px; height: 16px; margin-left: 4px; transition: transform 0.2s; }
+.pair.open .chev { transform: rotate(180deg); }
+.pacts-menu { margin-top: 10px; }
+.pact-list { display: grid; gap: 8px; margin: 10px 0 14px; }
+.pact-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; text-align: left; color: var(--ink); background: var(--surface-2); border: 1px solid transparent; border-radius: 14px; font: inherit; cursor: pointer; }
+.pact-row.current { border-color: var(--you); }
+.pact-text { display: grid; gap: 2px; min-width: 0; }
+.pact-text strong { overflow-wrap: anywhere; }
+.pact-avs { display: flex; }
+.pact-avs .av { border: 2px solid var(--surface-2); }
+.pact-avs .av + .av { margin-left: -8px; }
+.pact-check { color: var(--you); width: 20px; height: 20px; }
 .pair .av { width: 40px; height: 40px; font-size: 1.05rem; border: 3px solid var(--bg); }
 .pair .av + .av { margin-left: -12px; }
 

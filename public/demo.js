@@ -215,7 +215,7 @@
     ['GET', /^\/api\/me$/, () => {
       if (!db.loggedIn) fail(401, 'Log in first');
       const p = db.partnership;
-      return { user: db.me, partnerships: p ? [{ id: p.id, name: p.name, member_count: db.members.length, max_members: 2 }] : [] };
+      return { user: db.me, partnerships: p ? [{ id: p.id, name: p.name, member_count: db.members.length, max_members: 2, members: db.members.map((uid) => ({ id: uid, name: uid === ME ? db.me.name : 'King' })) }] : [] };
     }],
     ['POST', /^\/api\/signup$/, (b) => {
       const name = text(b.name, 'Name', { max: 40 });

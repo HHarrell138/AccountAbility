@@ -236,6 +236,11 @@ function createApp({ dbFile = ':memory:' } = {}) {
        FROM partnerships p JOIN memberships m ON m.partnership_id = p.id
        WHERE m.user_id = ? ORDER BY m.joined_at`
     ).all(user.id);
+    // Who's in each pact, for the pact switcher.
+    const members = q(
+      `SELECT u.id, u.name FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.partnership_id = ? ORDER BY m.joined_at`
+    );
+    for (const p of partnerships) p.members = members.all(p.id);
     return { user, partnerships };
   });
 
