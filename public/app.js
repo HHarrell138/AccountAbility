@@ -491,19 +491,11 @@
     const done = score ? score.done : 0;
     const target = score ? score.target : h.target_per_week;
     const todayC = byDay.get(d.today);
-    // Days still open this week: from today (unless already logged) to Sunday,
-    // counting only scheduled days for goals with a schedule.
-    const from = todayC ? addDays(d.today, 1) : d.today;
-    const end = addDays(start, 6);
-    const daysLeft = from > end ? 0 : daysOpen(h, from, end);
-    const need = Math.max(0, target - done);
 
-    let outlook;
+    // Only good news gets a pill. How far behind you are is left to the count.
+    let outlook = '';
     if (!score && !h.archived_day) outlook = `<span class="pill">starts Monday</span>`; // no scheduled days left this week
-    else if (need === 0) outlook = `<span class="pill good">target hit</span>`;
-    else if (need > daysLeft) outlook = `<span class="pill bad">week lost</span>`;
-    else if (need === daysLeft) outlook = `<span class="pill warn">no slack</span>`;
-    else outlook = `<span class="pill">${need} to go</span>`;
+    else if (done >= target) outlook = `<span class="pill good">target hit</span>`;
 
     const sched = parseSched(h.schedule);
     const dots = DAY_LABELS.map((label, i) => {
@@ -824,15 +816,6 @@
       if (!off && /^\d{2}:\d{2}$/.test(t)) sched[k] = t;
     }
     return sched;
-  }
-
-  // Days from `from` to `to` (inclusive) a habit can still be done on; with a
-  // schedule, days off don't count. Mirrors availableDays in src/logic.js.
-  function daysOpen(h, from, to) {
-    const sched = parseSched(h.schedule);
-    let n = 0;
-    for (let day = from; day <= to; day = addDays(day, 1)) if (!sched || sched[dayKey(day)]) n++;
-    return n;
   }
 
   const dayKey = (day) => WEEK[(new Date(day + 'T00:00:00Z').getUTCDay() + 6) % 7][0];
