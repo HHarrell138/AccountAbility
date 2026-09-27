@@ -252,6 +252,9 @@
   }
 
   const isMe = (id) => id === state.dash.me;
+  // Each person's own order: reordered goals first, then the rest oldest first.
+  const byOrder = (a, b) => (a.position || 1e9) - (b.position || 1e9) || a.id - b.id;
+  const myHabitFor = (g) => state.dash.habits.find((h) => h.goal_id === g.id && isMe(h.user_id));
   const whoClass = (id) => (isMe(id) ? 'you' : 'them');
   const avatar = (m) => `<span class="av ${whoClass(m.id)}" aria-hidden="true">${esc((m.name || '?').slice(0, 1).toUpperCase())}</span>`;
 
@@ -260,9 +263,11 @@
     const partners = d.members.filter((m) => !isMe(m.id));
     const partnerName = partners[0] ? esc(partners[0].name) : 'your partner';
     const waiting = d.members.length < d.partnership.max_members;
-    const active = d.goals.filter((g) => g.status === 'active');
+    const active = d.goals
+      .filter((g) => g.status === 'active')
+      .sort((a, b) => byOrder(myHabitFor(a) || { id: 1e9 + a.id }, myHabitFor(b) || { id: 1e9 + b.id }));
     const proposals = d.goals.filter((g) => g.status === 'proposed');
-    const sideMine = d.habits.filter((h) => isMe(h.user_id) && !h.goal_id);
+    const sideMine = d.habits.filter((h) => isMe(h.user_id) && !h.goal_id).sort(byOrder);
     const unread = d.events.filter((e) => e.id > d.last_seen_event_id && !isMe(e.actor_id)).length;
 
     return `
@@ -283,23 +288,24 @@
       ${proposals.length ? proposalsCard(proposals) : ''}
 
       <section class="block">
-        <h2 class="section-title">Shared goals</h2>
-        ${addForm('shared', active.length === 0 && proposals.length === 0, partnerName)}
-        ${active.length
+        ${sectionHead('shared', 'Shared goals', active.length)}
+        ${state.reorder === 'shared' ? reorderList() : addForm('shared', active.length === 0 && proposals.length === 0, partnerName)}
+        ${state.reorder === 'shared'
+          ? ''
+          : active.length
           ? active.map(goalCard).join('')
           : `<p class="empty">${proposals.length ? 'Nothing is agreed yet.' : 'Agree on your first goal.'} You're both held to shared goals, and they're what your streak counts.</p>`}
       </section>
 
       <section class="block">
-        <h2 class="section-title">Your side goals</h2>
+        ${sectionHead('side', 'Your side goals', sideMine.filter((h) => !h.archived_day).length)}
         <p class="section-note">Just yours. ${partnerName} can see them, but they don't count toward the streak.</p>
-        ${addForm('side', false, partnerName)}
-        ${sideMine.map((h) => sideCard(h)).join('')}
+        ${state.reorder === 'side' ? reorderList() : `${addForm('side', false, partnerName)}${sideMine.map((h) => sideCard(h)).join('')}`}
       </section>
 
       ${partners
         .map((p) => {
-          const theirs = d.habits.filter((h) => h.user_id === p.id && !h.goal_id);
+          const theirs = d.habits.filter((h) => h.user_id === p.id && !h.goal_id).sort(byOrder);
           return theirs.length
             ? `<section class="block"><h2 class="section-title">${esc(p.name)}'s side goals</h2>${theirs.map((h) => sideCard(h)).join('')}</section>`
             : '';
@@ -317,6 +323,44 @@
           : `<button class="link" data-action="new-pact">Start or join another pact</button>
              <button class="link" data-action="logout">Log out</button>`}
       </footer>`;
+  }
+
+  // A section heading, with Reorder once there are two or more goals to order.
+  function sectionHead(kind, title, count) {
+    const on = state.reorder === kind;
+    return `
+      <div class="section-head">
+        <h2 class="section-title">${title}</h2>
+        ${on || count > 1 ? `<button class="link" data-action="${on ? 'save-order' : 'start-reorder'}" data-kind="${kind}">${on ? 'Done' : 'Reorder'}</button>` : ''}
+      </div>`;
+  }
+
+  // Your goals in one section as a short list with up and down arrows. The
+  // order you set here is the order everywhere, Today list included.
+  function reorderList() {
+    const d = state.dash;
+    const rows = state.reorderIds
+      .map((id, i, all) => {
+        const h = d.habits.find((x) => x.id === id);
+        const goal = h.goal_id && d.goals.find((g) => g.id === h.goal_id);
+        const title = goal && goal.personal ? personalPreset(goal.icon)?.personal || h.title : h.title;
+        return `
+          <li class="reorder-row">
+            <span class="icon-tile sm">${iconSvg(h.icon)}</span>
+            <span class="reorder-title">${esc(title)}</span>
+            <button class="icon-btn" data-action="move-goal" data-index="${i}" data-dir="-1" aria-label="Move ${esc(title)} up" ${i === 0 ? 'disabled' : ''}>${uiIcon('chevron', 'up')}</button>
+            <button class="icon-btn" data-action="move-goal" data-index="${i}" data-dir="1" aria-label="Move ${esc(title)} down" ${i === all.length - 1 ? 'disabled' : ''}>${uiIcon('chevron')}</button>
+          </li>`;
+      })
+      .join('');
+    return `
+      <div class="card reorder">
+        <ol class="reorder-list">${rows}</ol>
+        <div class="row">
+          <button class="btn primary" data-action="save-order">Save order</button>
+          <button class="btn" data-action="cancel-reorder">Cancel</button>
+        </div>
+      </div>`;
   }
 
   function pactTitle() {
@@ -371,7 +415,7 @@
     const scored = new Map((d.week.members[d.me]?.habits || []).map((x) => [x.habit_id, x]));
     const goals = d.habits
       .filter((h) => isMe(h.user_id) && !h.archived_day && h.created_day <= d.today)
-      .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1)); // shared first
+      .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(a, b)); // shared first, each in your order
 
     const items = goals.map((h) => {
       const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
@@ -1465,6 +1509,40 @@
       if (!state.partnerships.some((p) => p.id === state.pid)) state.pid = state.partnerships[0].id;
       await refresh();
     },
+    'start-reorder'(el) {
+      const d = state.dash;
+      const shared = el.dataset.kind === 'shared';
+      state.reorder = el.dataset.kind;
+      state.reorderIds = d.habits
+        .filter((h) => isMe(h.user_id) && !h.archived_day && (shared ? h.goal_id : !h.goal_id))
+        .sort(byOrder)
+        .map((h) => h.id);
+      state.panel = null;
+      render();
+    },
+    'move-goal'(el) {
+      const i = Number(el.dataset.index);
+      const j = i + Number(el.dataset.dir);
+      const ids = state.reorderIds;
+      if (j < 0 || j >= ids.length) return;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      render();
+      app.querySelector(`[data-action=move-goal][data-index="${j}"][data-dir="${el.dataset.dir}"]:not([disabled])`)?.focus();
+    },
+    async 'save-order'() {
+      const d = state.dash;
+      // Keep the other section's goals after these, in their current order.
+      const rest = d.habits.filter((h) => isMe(h.user_id) && !state.reorderIds.includes(h.id)).sort(byOrder).map((h) => h.id);
+      const ids = state.reorder === 'shared' ? [...state.reorderIds, ...rest] : [...rest, ...state.reorderIds];
+      await api('POST', `/api/partnerships/${state.pid}/order`, { habit_ids: ids });
+      state.reorder = null;
+      toast('Order saved.');
+      await refresh();
+    },
+    'cancel-reorder'() {
+      state.reorder = null;
+      render();
+    },
     'toggle-pacts'() {
       state.pactsOpen = !state.pactsOpen;
       render();
@@ -1475,6 +1553,7 @@
       if (pid === state.pid) return render();
       state.pid = pid;
       state.panel = null;
+      state.reorder = null;
       state.expanded = new Set();
       store('aa.pid', String(pid));
       await refresh();
@@ -1549,7 +1628,7 @@
 
   // Keep the partner's side fresh without clobbering anything you're typing.
   setInterval(() => {
-    if (document.hidden || !state.pid || state.panel || state.preset) return;
+    if (document.hidden || !state.pid || state.panel || state.preset || state.reorder) return;
     const a = document.activeElement;
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
     guarded(refresh);

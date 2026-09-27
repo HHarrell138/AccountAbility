@@ -136,6 +136,9 @@ function migrate(db) {
   if (!habitCols.includes('icon')) db.exec("ALTER TABLE habits ADD COLUMN icon TEXT NOT NULL DEFAULT 'check'");
   if (!habitCols.includes('goal_id')) db.exec('ALTER TABLE habits ADD COLUMN goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE');
   if (!habitCols.includes('schedule')) db.exec("ALTER TABLE habits ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
+  // Where the goal sits in its owner's list. 0 = never reordered: it goes after
+  // the ordered ones, oldest first.
+  if (!habitCols.includes('position')) db.exec('ALTER TABLE habits ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
   const goalCols = db.prepare('PRAGMA table_info(goals)').all().map((c) => c.name);
   if (!goalCols.includes('schedule')) db.exec("ALTER TABLE goals ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
   if (!goalCols.includes('personal')) db.exec('ALTER TABLE goals ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');

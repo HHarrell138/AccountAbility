@@ -79,6 +79,7 @@
       step: h.step || 0,
       amount_period: h.amount_period || 'day',
       goal_id: goalId,
+      position: 0,
       created_day: today,
       archived_day: null,
     };
@@ -332,6 +333,14 @@
       } else {
         accept(goal, ME, b.today, goal.schedule ? fields({ title: goal.title, schedule: b.schedule }).schedule : '', goal.personal ? personalFields(b, goal) : null);
       }
+      return { ok: true };
+    }],
+    ['POST', /^\/api\/partnerships\/(\d+)\/order$/, (b) => {
+      if (!Array.isArray(b.habit_ids)) fail(400, 'habit_ids must be a list');
+      b.habit_ids.forEach((hid, i) => {
+        const h = db.habits.find((x) => x.id === hid && x.user_id === ME);
+        if (h) h.position = i + 1;
+      });
       return { ok: true };
     }],
     ['PATCH', /^\/api\/habits\/(\d+)$/, (b, q, m) => {

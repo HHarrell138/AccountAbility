@@ -455,3 +455,30 @@ test('personal numbers: each partner sets their own protein goal', async (t) => 
   const myWater = dash.habits.find((h) => h.goal_id === water.id && h.user_id === hankId);
   assert.equal((await a('PATCH', `/api/habits/${myWater.id}`, { personal: { title: 'Drink a cup', daily_amount: 8 } })).status, 400);
 });
+
+test('order: each person sets their own goal order', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const a = client(base);
+  const b = client(base);
+  await a('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await b('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
+  const { id: pid, invite_code } = (await a('POST', '/api/partnerships', { today })).data.partnership;
+  await b('POST', '/api/partnerships/join', { code: invite_code });
+
+  const add = async (who, title) => (await who('POST', '/api/habits', { partnership_id: pid, title, target_per_week: 3, today })).data.habit.id;
+  const read = await add(a, 'Read');
+  const pray = await add(a, 'Pray');
+  const kings = await add(b, 'Lift');
+
+  // Hank's list, reversed. King's goal id in the list is ignored.
+  assert.equal((await a('POST', `/api/partnerships/${pid}/order`, { habit_ids: [pray, read, kings] })).status, 200);
+  const dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  const pos = (id) => dash.habits.find((h) => h.id === id).position;
+  assert.deepEqual([pos(pray), pos(read), pos(kings)], [1, 2, 0]);
+  assert.equal((await a('POST', `/api/partnerships/${pid}/order`, { habit_ids: 'nope' })).status, 400);
+  assert.equal((await a('POST', `/api/partnerships/${pid}/order`, { habit_ids: ['x'] })).status, 400);
+});

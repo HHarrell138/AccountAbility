@@ -292,6 +292,16 @@ function createApp({ dbFile = ':memory:' } = {}) {
     return { ok: true };
   });
 
+  // Your own order for your goals. Only your rows move; your partner keeps theirs.
+  route('POST', '/api/partnerships/:id/order', ({ user, params, body }) => {
+    const p = requireMember(params.id, user.id);
+    if (!Array.isArray(body.habit_ids) || body.habit_ids.length > 100) fail(400, 'habit_ids must be a list');
+    if (!body.habit_ids.every(Number.isInteger)) fail(400, 'habit_ids must be ids');
+    const set = q('UPDATE habits SET position = ? WHERE id = ? AND partnership_id = ? AND user_id = ?');
+    tx(() => body.habit_ids.forEach((id, i) => set.run(i + 1, Number(id), p.id, user.id)));
+    return { ok: true };
+  });
+
   route('GET', '/api/partnerships/:id/dashboard', ({ user, params, query }) => {
     const p = requireMember(params.id, user.id);
     const today = clientToday(query.get('today'));
