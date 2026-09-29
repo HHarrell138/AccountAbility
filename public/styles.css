@@ -390,7 +390,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .note-line { font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
 
 .icon-tile {
-  --tile: var(--surface-2);
+  --tile: var(--tile-base, var(--surface-2));
   --tint: var(--ink);
   flex: 0 0 auto;
   display: grid;
@@ -512,9 +512,12 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 /* ---------- proposals ---------- */
 
 .proposals { border: 2px dashed var(--them); box-shadow: none; }
-.proposal { display: flex; gap: 12px; padding-top: 12px; }
-.proposal + .proposal { border-top: 1px solid var(--line); margin-top: 12px; }
-.proposal-body { flex: 1 1 auto; min-width: 0; }
+/* Each request is its own tile, so a stack of them reads as separate asks. */
+.proposal { display: flex; gap: 12px; margin-top: 12px; padding: 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; }
+.proposal-body { flex: 1 1 0; min-width: 0; }
+/* On the tile's lighter background, plain icons and buttons step back down to the card color. */
+.proposal { --tile-base: var(--surface); }
+.proposal .btn:not(.primary) { background: var(--surface); border: 1px solid var(--line); } /* basis 0: a long line wraps its text, not the whole body under the icon */
 .proposal-title { font: 700 1.05rem/1.25 var(--font-display); margin: 2px 0; overflow-wrap: anywhere; }
 .proposal .row .btn { flex: 0 1 auto; }
 
