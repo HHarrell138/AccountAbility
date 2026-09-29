@@ -600,3 +600,36 @@ test('linked goals: a goal added later starts with what you logged today', async
   const after = (await hank('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data;
   assert.equal(after.amounts.find((a) => a.habit_id === w1.id).amount, 0);
 });
+
+test('leave a pact: your partner keeps it; the last one out deletes it', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
+  const pact = (await hank('POST', '/api/partnerships', { name: 'Hank & King', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: pact.invite_code });
+  const g = (await hank('POST', '/api/goals', { partnership_id: pact.id, title: 'Work out', icon: 'workout', target_per_week: 4, today })).data.goal;
+  await king('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+  await hank('POST', '/api/goals', { partnership_id: pact.id, title: 'Read', target_per_week: 3, today }); // still open
+  const kingSide = (await king('POST', '/api/habits', { partnership_id: pact.id, title: 'Stretch', target_per_week: 3, today })).data.habit;
+
+  assert.deepEqual((await hank('POST', `/api/partnerships/${pact.id}/leave`, { today })).data, { deleted: false });
+  assert.equal((await hank('GET', '/api/me')).data.partnerships.length, 0);
+  assert.equal((await hank('GET', `/api/partnerships/${pact.id}/dashboard?today=${today}`)).status, 404);
+
+  const dash = (await king('GET', `/api/partnerships/${pact.id}/dashboard?today=${today}`)).data;
+  assert.deepEqual(dash.members.map((m) => m.name), ['King']);
+  assert.equal(dash.goals.length, 0); // the shared goal ended, the proposal was withdrawn
+  assert.equal(dash.habits.find((h) => h.id === kingSide.id).archived_day, null); // his side goal stays
+  assert.equal(dash.habits.find((h) => h.goal_id === g.id && h.user_id !== kingSide.user_id).archived_day, today);
+  assert.equal(dash.events[0].kind, 'left');
+
+  // King's the last one in, so leaving deletes it. The invite code stops working.
+  assert.deepEqual((await king('POST', `/api/partnerships/${pact.id}/leave`, { today })).data, { deleted: true });
+  assert.equal((await hank('POST', '/api/partnerships/join', { code: pact.invite_code })).status, 404);
+});

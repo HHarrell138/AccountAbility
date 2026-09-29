@@ -322,6 +322,29 @@ function createApp({ dbFile = ':memory:' } = {}) {
     });
   });
 
+  // Leave a pact. If you're the only one in it, it's deleted. Otherwise your
+  // partner keeps it, with their history and side goals: your goals there
+  // end, shared goals end for both of you (they need two), open proposals are
+  // withdrawn, and the feed says you left. They can invite someone new.
+  route('POST', '/api/partnerships/:id/leave', ({ user, params, body }) => {
+    const p = requireMember(params.id, user.id);
+    const today = clientToday(body.today);
+    return tx(() => {
+      const { n } = q('SELECT COUNT(*) AS n FROM memberships WHERE partnership_id = ?').get(p.id);
+      if (n <= 1) {
+        q('DELETE FROM partnerships WHERE id = ?').run(p.id);
+        return { deleted: true };
+      }
+      q(`UPDATE habits SET archived_day = ? WHERE partnership_id = ? AND archived_day IS NULL
+         AND (user_id = ? OR goal_id IN (SELECT id FROM goals WHERE partnership_id = ? AND status = 'active'))`).run(today, p.id, user.id, p.id);
+      q(`UPDATE goals SET status = 'ended', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE partnership_id = ? AND status = 'active'`).run(p.id);
+      q(`UPDATE goals SET status = 'withdrawn', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE partnership_id = ? AND status = 'proposed'`).run(p.id);
+      q('DELETE FROM memberships WHERE partnership_id = ? AND user_id = ?').run(p.id, user.id);
+      addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'left' });
+      return { deleted: false };
+    });
+  });
+
   route('PATCH', '/api/partnerships/:id', ({ user, params, body }) => {
     const p = requireMember(params.id, user.id);
     if (body.name !== undefined) {

@@ -375,12 +375,33 @@
         const others = (p.members || []).filter((m) => !isMe(m.id));
         const current = p.id === state.pid;
         const who = others.length ? `You & ${others.map((m) => esc(m.name)).join(', ')}` : 'Waiting for your partner to join';
-        return `
+        const avs = `<span class="pact-avs">${(p.members || []).map(avatar).join('')}</span>`;
+        const text = `<span class="pact-text"><strong>${esc(p.name)}</strong><span class="small muted">${who}</span></span>`;
+        if (!state.pactsEdit) {
+          return `
           <button type="button" class="pact-row ${current ? 'current' : ''}" data-action="go-pact" data-pid="${p.id}" aria-current="${current}">
-            <span class="pact-avs">${(p.members || []).map(avatar).join('')}</span>
-            <span class="pact-text"><strong>${esc(p.name)}</strong><span class="small muted">${who}</span></span>
-            ${current ? uiIcon('done', 'pact-check') : ''}
+            ${avs}${text}${current ? uiIcon('done', 'pact-check') : ''}
           </button>`;
+        }
+        // Edit: leave a pact someone else is in, delete one that's just you.
+        const alone = !others.length;
+        const confirming = state.pactConfirm === p.id;
+        return `
+          <div class="pact-row editing ${confirming ? 'confirming' : ''}">
+            ${avs}${text}
+            ${confirming ? '' : `<button class="btn small danger" data-action="confirm-leave" data-pid="${p.id}">${alone ? 'Delete' : 'Leave'}</button>`}
+            ${confirming
+              ? `<div class="pact-confirm">
+                   <p class="small">${alone
+                     ? `<strong>Delete ${esc(p.name)}?</strong> Nobody else is in it, so it's gone for good, with its goals.`
+                     : `<strong>Leave ${esc(p.name)}?</strong> Your goals there end, and shared goals end for ${esc(others.map((m) => m.name).join(' and '))} too. They keep the pact and its history, and see that you left.`}</p>
+                   <div class="row">
+                     <button class="btn small danger" data-action="leave-pact" data-pid="${p.id}">${alone ? 'Delete it' : 'Leave'}</button>
+                     <button class="btn small" data-action="cancel-leave">Keep it</button>
+                   </div>
+                 </div>`
+              : ''}
+          </div>`;
       })
       .join('');
     return `
@@ -388,8 +409,11 @@
         <h2 class="card-title">Your pacts</h2>
         <div class="pact-list">${rows}</div>
         <div class="row">
-          <button class="btn small" data-action="new-pact">${uiIcon('plus')}Start or join another</button>
-          ${window.AA_DEMO ? '' : `<button class="link quiet" data-action="logout">Log out</button>`}
+          ${state.pactsEdit
+            ? `<button class="btn small" data-action="edit-pacts">Done</button>`
+            : `<button class="btn small" data-action="new-pact">${uiIcon('plus')}Start or join another</button>
+               <button class="btn small" data-action="edit-pacts">Edit</button>`}
+          ${window.AA_DEMO || state.pactsEdit ? '' : `<button class="link quiet" data-action="logout">Log out</button>`}
         </div>
       </section>`;
   }
@@ -1197,6 +1221,7 @@
     switch (e.kind) {
       case 'created': text = `${who} started the pact.`; break;
       case 'joined': text = `${who} joined. It's on.`; break;
+      case 'left': text = `${who} left the pact. Shared goals ended with it.`; break;
       case 'done': case 'done_late': text = `${who} did ${habit}.${note}${late}`; break;
       case 'missed': case 'missed_late': text = `${who} missed ${habit}.${note}${late}`; break;
       case 'habit_added': text = `${who} added a side goal: ${habit} (${esc(e.message)}).`; break;
@@ -1555,7 +1580,31 @@
       state.reorder = null;
       render();
     },
+    'edit-pacts'() {
+      state.pactsEdit = !state.pactsEdit;
+      state.pactConfirm = null;
+      render();
+    },
+    'confirm-leave'(el) {
+      state.pactConfirm = Number(el.dataset.pid);
+      render();
+    },
+    'cancel-leave'() {
+      state.pactConfirm = null;
+      render();
+    },
+    async 'leave-pact'(el) {
+      if (window.AA_DEMO) throw new Error('The preview is just you and King. Leave or delete pacts in the live app.');
+      const p = state.partnerships.find((x) => x.id === Number(el.dataset.pid));
+      const { deleted } = await api('POST', `/api/partnerships/${p.id}/leave`, { today: localToday() });
+      state.pactConfirm = null;
+      await boot(); // back to your saved pact, or the next one, or the start screen
+      if (!state.partnerships.length) state.pactsEdit = false;
+      toast(deleted ? `Deleted ${p.name}.` : `You left ${p.name}.`);
+    },
     'toggle-pacts'() {
+      state.pactsEdit = false;
+      state.pactConfirm = null;
       state.pactsOpen = !state.pactsOpen;
       render();
     },
