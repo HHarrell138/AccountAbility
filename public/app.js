@@ -732,7 +732,6 @@
         ${subline(h, w, person)}
         ${tracked(h) ? amountRow(h) : ''}
         ${schedRow(h)}
-        ${h.links?.length ? `<div class="row-sched linked">${uiIcon('pact')}<span>Also counts in ${esc(listNames(h.links))}</span></div>` : ''}
         ${personal !== undefined ? numberRow(h, personal) : ''}
         ${missOpen ? missPanel(h) : ''}
       </div>`;
