@@ -545,3 +545,47 @@ test('linked goals: log once, it counts in every pact with the same goal', async
   // King's partner-only view doesn't get link info about Hank's other pacts.
   assert.equal((await king('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data.habits.find((h) => h.id === waterK.id).links, undefined);
 });
+
+test('linked goals: a goal added later starts with what you logged today', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  const kona = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
+  await kona('POST', '/api/signup', { name: 'Kona', username: 'kona', password: 'password123' });
+  const withKing = (await hank('POST', '/api/partnerships', { name: 'Hank & King', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: withKing.invite_code });
+  const withKona = (await hank('POST', '/api/partnerships', { name: 'Hank & Kona', today })).data.partnership;
+  await kona('POST', '/api/partnerships/join', { code: withKona.invite_code });
+  const water = { title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 8, today };
+  const lift = { title: 'Work out', icon: 'workout', target_per_week: 4, today };
+
+  // 16 oz and a workout logged with King first...
+  const w1 = (await hank('POST', '/api/habits', { partnership_id: withKing.id, ...water })).data.habit;
+  const l1 = (await hank('POST', '/api/habits', { partnership_id: withKing.id, ...lift })).data.habit;
+  await hank('POST', '/api/amounts', { habit_id: w1.id, delta: 16, today });
+  await hank('POST', '/api/checkins', { habit_id: l1.id, status: 'done', today });
+
+  // ...then the same goals set up with Kona, as a proposal Kona accepts.
+  const g = (await hank('POST', '/api/goals', { partnership_id: withKona.id, ...water })).data.goal;
+  await kona('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+  const l2 = (await hank('POST', '/api/habits', { partnership_id: withKona.id, ...lift })).data.habit;
+
+  const dash = (await hank('GET', `/api/partnerships/${withKona.id}/dashboard?today=${today}`)).data;
+  const w2 = dash.habits.find((h) => h.goal_id === g.id && h.user_id === w1.user_id);
+  assert.equal(dash.amounts.find((a) => a.habit_id === w2.id)?.amount, 16);
+  assert.equal(dash.checkins.some((c) => c.habit_id === l2.id && c.status === 'done'), true);
+  // Kona's own new water goal starts empty: nothing of his was logged.
+  const konasWater = dash.habits.find((h) => h.goal_id === g.id && h.user_id !== w1.user_id);
+  assert.equal(dash.amounts.some((a) => a.habit_id === konasWater.id), false);
+
+  // From here on, one log counts in both.
+  await hank('POST', '/api/amounts', { habit_id: w2.id, delta: 8, today });
+  const kingDash = (await hank('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data;
+  assert.equal(kingDash.amounts.find((a) => a.habit_id === w1.id).amount, 24);
+});

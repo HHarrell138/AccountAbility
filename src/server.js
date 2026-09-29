@@ -196,6 +196,20 @@ function createApp({ dbFile = ':memory:' } = {}) {
       });
   }
 
+  // A goal just added in one pact starts with what you already logged today
+  // on the same goal in your other pacts, so you never log it twice.
+  function catchUp(h) {
+    const day = h.created_day;
+    const links = linkedHabits(h);
+    if (!links.length) return;
+    if (h.daily_amount > 0) {
+      const got = Math.max(...links.map((x) => q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(x.id, day)?.amount || 0));
+      if (got > 0) applyAmount(h, day, got, 0);
+    } else if (links.some((x) => q(`SELECT 1 FROM checkins WHERE habit_id = ? AND day = ? AND status = 'done'`).get(x.id, day))) {
+      writeCheckin(h, day, 'done', '', 0);
+    }
+  }
+
   const pactName = (id) => q('SELECT name FROM partnerships WHERE id = ?').get(id).name;
 
   function memberIds(partnershipId) {
@@ -451,12 +465,15 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const today = clientToday(body.today);
     const { active } = q('SELECT COUNT(*) AS active FROM habits WHERE partnership_id = ? AND user_id = ? AND archived_day IS NULL').get(p.id, user.id);
     if (active >= 10) fail(400, 'Ten habits is plenty. Archive one first.');
-    const habit = q(
-      `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, created_day)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, amount_period, today);
-    addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: `${target}x / week` });
-    return { habit };
+    return tx(() => {
+      const habit = q(
+        `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, created_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+      ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, amount_period, today);
+      addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: `${target}x / week` });
+      catchUp(habit); // starts with what you already logged today on the same goal elsewhere
+      return { habit };
+    });
   });
 
   route('PATCH', '/api/habits/:id', ({ user, params, body }) => {
@@ -564,18 +581,20 @@ function createApp({ dbFile = ':memory:' } = {}) {
       // agrees brings their own number and the title that goes with it.
       const own = goal.personal ? personalFields(body, goal) : { title: goal.title, daily_amount: goal.daily_amount };
       q(`UPDATE goals SET status = 'active', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(goal.id);
+      const created = [];
       for (const uid of memberIds(goal.partnership_id)) {
         const mine = uid === user.id;
         const schedule = mine ? ownSchedule : goal.schedule;
         const target = schedule ? Object.keys(JSON.parse(schedule)).length : goal.target_per_week;
         const title = mine ? own.title : goal.title;
         const amount = mine ? own.daily_amount : goal.daily_amount;
-        q(
+        created.push(q(
           `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, goal_id, created_day)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(goal.partnership_id, uid, title, goal.why, target, goal.icon, schedule, amount, goal.unit, Math.min(goal.step, amount || goal.step), goal.amount_period, goal.id, today);
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+        ).get(goal.partnership_id, uid, title, goal.why, target, goal.icon, schedule, amount, goal.unit, Math.min(goal.step, amount || goal.step), goal.amount_period, goal.id, today));
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
+      created.forEach(catchUp); // each of you picks up what you already logged today in your other pacts
       return { ok: true };
     });
   });
