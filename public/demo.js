@@ -410,8 +410,8 @@
       if (!h) fail(404, 'Habit not found');
       if (!(h.daily_amount > 0)) fail(400, 'That goal is not logged by amount');
       const day = b.day || b.today;
-      const delta = Number(b.delta);
-      if (!Number.isFinite(delta) || delta === 0) fail(400, 'Enter an amount');
+      const delta = b.reset ? -(db.amounts.find((a) => a.habit_id === h.id && a.day === day)?.amount || 0) : Number(b.delta);
+      if (!b.reset && (!Number.isFinite(delta) || delta === 0)) fail(400, 'Enter an amount');
       return addAmount(h, day, delta, day !== b.today ? 1 : 0);
     }],
     ['POST', /^\/api\/checkins\/undo$/, (b) => {

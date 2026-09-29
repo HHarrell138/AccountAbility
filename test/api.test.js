@@ -588,4 +588,10 @@ test('linked goals: a goal added later starts with what you logged today', async
   await hank('POST', '/api/amounts', { habit_id: w2.id, delta: 8, today });
   const kingDash = (await hank('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data;
   assert.equal(kingDash.amounts.find((a) => a.habit_id === w1.id).amount, 24);
+
+  // Reset takes today back to 0 in both.
+  const r = (await hank('POST', '/api/amounts', { habit_id: w2.id, reset: true, today })).data;
+  assert.deepEqual([r.amount, r.also], [0, ['Hank & King']]);
+  const after = (await hank('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data;
+  assert.equal(after.amounts.find((a) => a.habit_id === w1.id).amount, 0);
 });

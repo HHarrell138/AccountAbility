@@ -662,18 +662,21 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const day = body.day === undefined ? today : body.day;
     if (day !== today && day !== L.addDays(today, -1)) fail(400, 'You can only log today or yesterday');
     if (day < h.created_day) fail(400, 'That habit did not exist yet');
+    // reset: back to 0 for that day, here and in your linked pacts.
+    const reset = body.reset === true;
     const delta = Number(body.delta);
-    if (!Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 100000) fail(400, 'Enter an amount');
+    if (!reset && (!Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 100000)) fail(400, 'Enter an amount');
+    const change = (x) => (reset ? -(q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(x.id, day)?.amount || 0) : delta);
 
     const late = day !== today ? 1 : 0;
     return tx(() => {
-      const result = applyAmount(h, day, delta, late);
+      const result = applyAmount(h, day, change(h), late);
       // The same amount goes into the same goal in your other pacts, each
       // counted against its own target.
       const also = [];
       for (const x of linkedHabits(h)) {
         if (day < x.created_day) continue;
-        applyAmount(x, day, delta, late);
+        applyAmount(x, day, change(x), late);
         also.push(pactName(x.partnership_id));
       }
       return { ...result, also };

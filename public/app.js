@@ -1171,6 +1171,7 @@
                ${h.step > 0 ? `<button class="link" data-action="open-amount" data-where="card" data-habit="${h.id}">Add…</button>` : ''}
                ${personalPreset(h.icon) ? `<button class="link quiet" data-action="edit-number" data-habit="${h.id}">Edit number</button>` : ''}
                <button class="link quiet" data-action="open-step" data-habit="${h.id}">Tap size</button>
+               ${got > 0 ? `<button class="link quiet" data-action="reset-amount" data-habit="${h.id}">${weekly(h) ? 'Reset today' : 'Reset'}</button>` : ''}
              </span>`
           : ''}
       </div>`;
@@ -1241,15 +1242,15 @@
   const listNames = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
   const alsoIn = (res) => (res.also?.length ? ` Also in ${listNames(res.also)}.` : '');
 
-  async function addAmount(habitId, delta) {
+  async function addAmount(habitId, delta, reset) {
     const h = state.dash.habits.find((x) => x.id === habitId);
-    const res = await api('POST', '/api/amounts', { habit_id: habitId, delta, today: localToday() });
+    const res = await api('POST', '/api/amounts', reset ? { habit_id: habitId, reset: true, today: localToday() } : { habit_id: habitId, delta, today: localToday() });
     const wasDone = weekly(h) ? weekDone(h) : state.dash.checkins.some((c) => c.habit_id === habitId && c.day === state.dash.today && c.status === 'done');
     await refresh();
     const total = weekly(h)
       ? `${fmtAmount(res.total, '')} / ${fmtAmount(weekTarget(h), h.unit)} this week`
       : `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}`;
-    toast((res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`) + alsoIn(res), {
+    toast((reset ? `Reset to 0. ${total}.` : res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`) + alsoIn(res), {
       label: 'Undo',
       run: async () => {
         await api('POST', '/api/amounts', { habit_id: habitId, delta: -delta, today: localToday() });
@@ -1421,6 +1422,12 @@
     'edit-sched'(el) {
       state.panel = { type: 'edit-sched', habitId: Number(el.dataset.habit) };
       render();
+    },
+    // Back to zero for today (a weekly goal keeps its other days). Undo puts it back.
+    async 'reset-amount'(el) {
+      const h = state.dash.habits.find((x) => x.id === Number(el.dataset.habit));
+      const got = amountOn(h, state.dash.today);
+      if (got > 0) await addAmount(h.id, -got, true);
     },
     async 'add-amount'(el) {
       await addAmount(Number(el.dataset.habit), Number(el.dataset.delta));
