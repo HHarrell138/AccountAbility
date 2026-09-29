@@ -549,26 +549,24 @@
 
     let next;
     if (!thisWeek) next = 'Starts once your partner joins and you agree on a goal.';
-    else if (!tier) next = 'Both hit 70% of your shared goals this week to start a streak.';
+    else if (!tier) next = 'Get your combined bar to 70% this week to start a streak.';
     else if (tier === 'gold') next = 'Perfect weeks keep it gold. Under 100% drops it to green.';
     else if (tier === 'green') {
       const left = Math.max(1, s.goldRun - s.fullRun);
       next = `${left} more perfect week${left === 1 ? '' : 's'} in a row for gold.`;
     } else next = 'Hit 100% for a full week to go green.';
 
+    // One bar for the pair: each of you fills half, so it only gets past
+    // halfway when you're both putting in.
+    const pct = thisWeek?.pct == null ? null : Math.round(thisWeek.pct * 100);
+    const barTier = pct == null ? 'none' : pct >= 100 ? 'green' : pct >= 70 ? 'blue' : 'none';
     const bars = thisWeek
-      ? d.members
-          .map((m) => {
-            const mw = thisWeek.members[m.id];
-            const pct = mw?.pct == null ? null : Math.round(mw.pct * 100);
-            return `
-              <div class="bar-row">
-                ${avatar(m)}
-                <div class="bar marked ${whoClass(m.id)}"><span style="width:${pct ?? 0}%"></span><i class="mark-70"></i></div>
-                <span class="bar-num">${pct == null ? '–' : `${mw.done}/${mw.target}`}</span>
-              </div>`;
-          })
-          .join('')
+      ? `
+        <div class="bar-row together">
+          <span class="pair-avs">${d.members.map(avatar).join('')}</span>
+          <div class="bar marked combined ${barTier}"><span style="width:${pct ?? 0}%"></span><i class="mark-70"></i></div>
+          <span class="bar-num">${pct == null ? '–' : `${pct}%`}</span>
+        </div>`
       : '';
 
     const weeksShown = (s.history || []).slice(-7);
@@ -592,7 +590,7 @@
           ${history}
         </div>
         <p class="small muted streak-next">${next}</p>
-        ${bars ? `<div class="bars"><p class="eyebrow">This week, shared goals hit</p>${bars}</div>` : ''}
+        ${bars ? `<div class="bars"><p class="eyebrow">This week, together</p>${bars}</div>` : ''}
         <p class="legend"><span class="key blue"></span>70%+ <span class="key green"></span>100% <span class="key gold"></span>3 perfect weeks</p>
       </section>`;
   }

@@ -77,7 +77,8 @@ test('streak colors: gold after 3 perfect weeks, drop a level at 70-99%, break u
 });
 
 test('the pair is scored at the lower of the two weeks, by goals hit', () => {
-  // You: 1 of 2 goals hit (5/6 days misses its target). Partner: 1 of 1. Pair week: 50%.
+  // You: 1 of 2 goals hit (5/6 days misses its target). Partner: 1 of 1.
+  // Combined: each fills half the bar, so 25% + 50% = 75%.
   const habits = [
     habit({ id: 1, user_id: 1, target_per_week: 6 }),
     habit({ id: 2, user_id: 1, target_per_week: 4 }),
@@ -93,7 +94,11 @@ test('the pair is scored at the lower of the two weeks, by goals hit', () => {
   const w = L.weekPercent([1, 2], habits, checkins, week);
   assert.deepEqual([w.members[1].done, w.members[1].target, w.members[1].pct], [1, 2, 0.5]);
   assert.equal(w.members[2].pct, 1);
-  assert.equal(w.pct, 0.5);
+  assert.equal(w.pct, 0.75);
+
+  // One of you doing everything and the other nothing is half the bar, not a streak.
+  const solo = L.weekPercent([1, 2], habits, days(7).map((d) => done(3, d)), week);
+  assert.equal(solo.pct, 0.5);
 });
 
 test('scheduled habits only count days that have a time', () => {

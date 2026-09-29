@@ -107,9 +107,10 @@ function scoreWeek(memberIds, habits, checkins, start) {
 
 // ---------- the pair streak ----------
 //
-// Each finished week is scored by shared goals hit / shared goals (a goal is
-// hit when its weekly target is met), and the pair counts at whichever
-// partner had the lower week.
+// Each finished week is scored as one combined bar: each partner's shared
+// goals hit / shared goals (a goal is hit when its weekly target is met),
+// averaged, so each of you fills half. You at 100% and your partner at 0% is
+// 50%; 100% takes both of you hitting everything.
 //
 //   100%    -> green; three 100% weeks in a row -> gold (and it stays gold)
 //   70-99%  -> streak lives but drops a level: gold -> green, green -> blue
@@ -132,7 +133,7 @@ function weekPercent(memberIds, habits, checkins, start) {
     members[id] = { done, target, pct: target ? done / target : null };
   }
   const pcts = memberIds.map((id) => members[id].pct);
-  const pct = pcts.length && pcts.every((p) => p !== null) ? Math.min(...pcts) : null;
+  const pct = pcts.length && pcts.every((p) => p !== null) ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
   return { start, members, pct };
 }
 

@@ -353,6 +353,15 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .bar span { display: block; height: 100%; border-radius: inherit; min-width: 0; transition: width 0.4s ease; }
 .bar.you span { background: var(--you); }
 .bar.them span { background: var(--them); }
+/* The pair's combined bar: grey until 70%, blue at 70%, green at 100%. */
+.bar-row.together { grid-template-columns: auto minmax(0, 1fr) auto; }
+.bar-row.together .bar { height: 14px; }
+.pair-avs { display: flex; }
+.pair-avs .av { border: 2px solid var(--surface); }
+.pair-avs .av + .av { margin-left: -10px; }
+.bar.combined span { background: var(--muted); }
+.bar.combined.blue span { background: var(--you); }
+.bar.combined.green span { background: var(--good); }
 .bar-num { font: 700 0.95rem var(--font-display); font-variant-numeric: tabular-nums; min-width: 2.2em; text-align: right; }
 
 
