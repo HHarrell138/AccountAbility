@@ -408,13 +408,13 @@
       <section class="card pacts-menu">
         <h2 class="card-title">Your pacts</h2>
         <div class="pact-list">${rows}</div>
-        <div class="row">
-          ${state.pactsEdit
-            ? `<button class="btn small" data-action="edit-pacts">Done</button>`
-            : `<button class="btn small" data-action="new-pact">${uiIcon('plus')}Start or join another</button>
-               <button class="btn small" data-action="edit-pacts">Edit</button>`}
-          ${window.AA_DEMO || state.pactsEdit ? '' : `<button class="link quiet" data-action="logout">Log out</button>`}
-        </div>
+        ${state.pactsEdit
+          ? `<button class="btn wide" data-action="edit-pacts">Done</button>`
+          : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
+             <div class="pacts-foot">
+               <button class="link" data-action="edit-pacts">Edit pacts</button>
+               ${window.AA_DEMO ? '' : `<button class="link quiet" data-action="logout">Log out</button>`}
+             </div>`}
       </section>`;
   }
 
