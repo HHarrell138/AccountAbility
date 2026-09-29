@@ -205,6 +205,9 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .pact-check { color: var(--you); width: 20px; height: 20px; }
 .pacts-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
 .pact-row.editing { cursor: default; }
+.left-list { display: grid; gap: 8px; margin: 0 0 14px; }
+.left-list .eyebrow { margin: 0; }
+.left-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 14px; }
 .pact-row.confirming { border-color: var(--bad); }
 .pact-confirm { grid-column: 1 / -1; display: grid; gap: 10px; }
 .pact-confirm .btn:not(.danger) { background: var(--surface); border: 1px solid var(--line); }

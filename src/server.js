@@ -286,7 +286,15 @@ function createApp({ dbFile = ':memory:' } = {}) {
       `SELECT u.id, u.name FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.partnership_id = ? ORDER BY m.joined_at`
     );
     for (const p of partnerships) p.members = members.all(p.id);
-    return { user, partnerships };
+    // Pacts you left or deleted in the last day, which you can still undo.
+    const left = q(
+      `SELECT l.id, l.partnership_id, p.name, l.data, l.created_at FROM leaves l JOIN partnerships p ON p.id = l.partnership_id
+       WHERE l.user_id = ? AND l.created_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day') ORDER BY l.id DESC`
+    )
+      .all(user.id)
+      .filter((l) => !partnerships.some((p) => p.id === l.partnership_id))
+      .map(({ data, ...l }) => ({ ...l, deleted: JSON.parse(data).deleted }));
+    return { user, partnerships, left };
   });
 
   route('POST', '/api/partnerships', ({ user, body }) => {
@@ -310,7 +318,8 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const code = str(body.code, 'Invite code', { max: 12 }).toUpperCase();
     return tx(() => {
       const p = q('SELECT * FROM partnerships WHERE invite_code = ?').get(code);
-      if (!p) fail(404, 'No pact with that code');
+      // A pact everyone left is on its way out (undoable for a day): not joinable.
+      if (!p || !q('SELECT 1 FROM memberships WHERE partnership_id = ?').get(p.id)) fail(404, 'No pact with that code');
       if (q('SELECT 1 FROM memberships WHERE partnership_id = ? AND user_id = ?').get(p.id, user.id)) {
         return { partnership: { id: p.id, name: p.name } };
       }
@@ -326,24 +335,65 @@ function createApp({ dbFile = ':memory:' } = {}) {
   // partner keeps it, with their history and side goals: your goals there
   // end, shared goals end for both of you (they need two), open proposals are
   // withdrawn, and the feed says you left. They can invite someone new.
+  //
+  // Either way it can be undone for 24 hours (see leaves in db.js): nothing is
+  // deleted up front, only recorded, so Undo puts back exactly what changed.
   route('POST', '/api/partnerships/:id/leave', ({ user, params, body }) => {
     const p = requireMember(params.id, user.id);
     const today = clientToday(body.today);
     return tx(() => {
-      const { n } = q('SELECT COUNT(*) AS n FROM memberships WHERE partnership_id = ?').get(p.id);
-      if (n <= 1) {
-        q('DELETE FROM partnerships WHERE id = ?').run(p.id);
-        return { deleted: true };
-      }
-      q(`UPDATE habits SET archived_day = ? WHERE partnership_id = ? AND archived_day IS NULL
-         AND (user_id = ? OR goal_id IN (SELECT id FROM goals WHERE partnership_id = ? AND status = 'active'))`).run(today, p.id, user.id, p.id);
-      q(`UPDATE goals SET status = 'ended', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE partnership_id = ? AND status = 'active'`).run(p.id);
-      q(`UPDATE goals SET status = 'withdrawn', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE partnership_id = ? AND status = 'proposed'`).run(p.id);
+      purgeLeaves();
+      const membership = q('SELECT * FROM memberships WHERE partnership_id = ? AND user_id = ?').get(p.id, user.id);
+      const deleted = q('SELECT COUNT(*) AS n FROM memberships WHERE partnership_id = ?').get(p.id).n <= 1;
+      const ids = (sql, ...args) => q(sql).all(...args).map((r) => r.id);
+      const habits = ids(
+        `SELECT id FROM habits WHERE partnership_id = ? AND archived_day IS NULL
+         AND (user_id = ? OR goal_id IN (SELECT id FROM goals WHERE partnership_id = ? AND status = 'active'))`,
+        p.id, user.id, p.id
+      );
+      const ended = ids(`SELECT id FROM goals WHERE partnership_id = ? AND status = 'active'`, p.id);
+      const withdrawn = ids(`SELECT id FROM goals WHERE partnership_id = ? AND status = 'proposed'`, p.id);
+      for (const id of habits) q('UPDATE habits SET archived_day = ? WHERE id = ?').run(today, id);
+      for (const id of ended) q(`UPDATE goals SET status = 'ended', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(id);
+      for (const id of withdrawn) q(`UPDATE goals SET status = 'withdrawn', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(id);
       q('DELETE FROM memberships WHERE partnership_id = ? AND user_id = ?').run(p.id, user.id);
-      addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'left' });
-      return { deleted: false };
+      if (!deleted) addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'left' });
+      const event = deleted ? null : q('SELECT MAX(id) AS id FROM events WHERE partnership_id = ?').get(p.id).id;
+      const data = JSON.stringify({ deleted, habits, ended, withdrawn, event, joined_at: membership.joined_at, last_seen_event_id: membership.last_seen_event_id });
+      const { id } = q('INSERT INTO leaves (partnership_id, user_id, data) VALUES (?, ?, ?) RETURNING id').get(p.id, user.id, data);
+      return { deleted, undo_id: id };
     });
   });
+
+  // Put a leave back: your membership, your goals, the shared goals and open
+  // proposals, and the "left" line disappears from the feed.
+  route('POST', '/api/leaves/:id/undo', ({ user, params }) => {
+    purgeLeaves(); // on its own, so a refused undo doesn't roll the cleanup back
+    return tx(() => {
+      const leave = q('SELECT * FROM leaves WHERE id = ? AND user_id = ?').get(params.id, user.id);
+      if (!leave) fail(404, 'Too late to undo that one');
+      const d = JSON.parse(leave.data);
+      const p = q('SELECT * FROM partnerships WHERE id = ?').get(leave.partnership_id);
+      if (q('SELECT 1 FROM memberships WHERE partnership_id = ? AND user_id = ?').get(p.id, user.id)) fail(409, "You're already back in that pact");
+      const { n } = q('SELECT COUNT(*) AS n FROM memberships WHERE partnership_id = ?').get(p.id);
+      if (n >= p.max_members) fail(409, 'Someone else joined that pact since you left');
+      q('INSERT INTO memberships (partnership_id, user_id, last_seen_event_id, joined_at) VALUES (?, ?, ?, ?)').run(p.id, user.id, d.last_seen_event_id, d.joined_at);
+      for (const id of d.habits) q('UPDATE habits SET archived_day = NULL WHERE id = ?').run(id);
+      for (const id of d.ended) q(`UPDATE goals SET status = 'active' WHERE id = ? AND status = 'ended'`).run(id);
+      for (const id of d.withdrawn) q(`UPDATE goals SET status = 'proposed' WHERE id = ? AND status = 'withdrawn'`).run(id);
+      if (d.event) q(`DELETE FROM events WHERE id = ? AND kind = 'left'`).run(d.event);
+      q('DELETE FROM leaves WHERE id = ?').run(leave.id);
+      return { partnership: { id: p.id, name: p.name } };
+    });
+  });
+
+  // Leaves older than 24 hours can't be undone any more. A pact that's been
+  // empty since then is deleted for real, with everything in it.
+  function purgeLeaves() {
+    q(`DELETE FROM leaves WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')`).run();
+    q(`DELETE FROM partnerships WHERE id NOT IN (SELECT partnership_id FROM memberships)
+       AND id NOT IN (SELECT partnership_id FROM leaves)`).run();
+  }
 
   route('PATCH', '/api/partnerships/:id', ({ user, params, body }) => {
     const p = requireMember(params.id, user.id);
@@ -835,6 +885,8 @@ function createApp({ dbFile = ':memory:' } = {}) {
       res.end(data);
     });
   }
+
+  purgeLeaves(); // pacts left empty for over a day go at startup too
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

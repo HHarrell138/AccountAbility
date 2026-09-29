@@ -170,6 +170,7 @@
       const me = await api('GET', '/api/me');
       state.user = me.user;
       state.partnerships = me.partnerships;
+      state.left = me.left || [];
       const saved = Number(store('aa.pid'));
       state.pid = (me.partnerships.find((p) => p.id === saved) || me.partnerships[0] || {}).id ?? null;
       if (state.pid) await loadDash();
@@ -245,6 +246,7 @@
         <label for="p-code">Invite code<input id="p-code" name="code" maxlength="12" autocapitalize="characters" autocomplete="off" required placeholder="ABC234"></label>
         <button class="btn wide" type="submit">Join</button>
       </form>
+      ${state.left?.length ? `<section class="card">${recentlyLeft()}</section>` : ''}
       <footer class="foot">
         ${state.partnerships.length ? `<button class="link" data-action="back-to-pact">Back to my pact</button>` : ''}
         <button class="link" data-action="logout">Log out</button>
@@ -393,8 +395,8 @@
             ${confirming
               ? `<div class="pact-confirm">
                    <p class="small">${alone
-                     ? `<strong>Delete ${esc(p.name)}?</strong> Nobody else is in it, so it's gone for good, with its goals.`
-                     : `<strong>Leave ${esc(p.name)}?</strong> Your goals there end, and shared goals end for ${esc(others.map((m) => m.name).join(' and '))} too. They keep the pact and its history, and see that you left.`}</p>
+                     ? `<strong>Delete ${esc(p.name)}?</strong> Nobody else is in it, so it goes, with its goals. You can undo this for 24 hours.`
+                     : `<strong>Leave ${esc(p.name)}?</strong> Your goals there end, and shared goals end for ${esc(others.map((m) => m.name).join(' and '))} too. They keep the pact and its history, and see that you left. You can undo this for 24 hours.`}</p>
                    <div class="row">
                      <button class="btn small danger" data-action="leave-pact" data-pid="${p.id}">${alone ? 'Delete it' : 'Leave'}</button>
                      <button class="btn small" data-action="cancel-leave">Keep it</button>
@@ -408,6 +410,7 @@
       <section class="card pacts-menu">
         <h2 class="card-title">Your pacts</h2>
         <div class="pact-list">${rows}</div>
+        ${recentlyLeft()}
         ${state.pactsEdit
           ? `<button class="btn wide" data-action="edit-pacts">Done</button>`
           : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
@@ -416,6 +419,23 @@
                ${window.AA_DEMO ? '' : `<button class="link quiet" data-action="logout">Log out</button>`}
              </div>`}
       </section>`;
+  }
+
+  // Pacts you left or deleted in the last 24 hours, each with Undo.
+  function recentlyLeft() {
+    if (!state.left?.length) return '';
+    return `
+      <div class="left-list">
+        <p class="eyebrow">Recently ${state.left.every((l) => l.deleted) ? 'deleted' : 'left'}</p>
+        ${state.left
+          .map((l) => `
+            <div class="left-row">
+              <span class="small"><strong>${esc(l.name)}</strong> <span class="muted">${l.deleted ? 'deleted' : 'left'} ${ago(l.created_at)}</span></span>
+              <button class="btn small" data-action="undo-leave" data-leave="${l.id}">Undo</button>
+            </div>`)
+          .join('')}
+        <p class="small muted">Undo works for 24 hours.</p>
+      </div>`;
   }
 
   function inviteCard() {
@@ -1416,6 +1436,16 @@
     return { title, ...(p.track ? { daily_amount: Number(f.amount.value) * (p.track.per || 1) } : {}) };
   }
 
+  // Undo a leave or delete, and take you back into that pact.
+  async function undoLeave(id) {
+    const { partnership } = await api('POST', `/api/leaves/${id}/undo`, {});
+    store('aa.pid', String(partnership.id));
+    state.pactsEdit = false;
+    state.pactsOpen = false;
+    await boot();
+    toast(`${partnership.name} is back.`);
+  }
+
   const actions = {
     'auth-mode'(el) {
       state.authMode = el.dataset.mode;
@@ -1596,11 +1626,14 @@
     async 'leave-pact'(el) {
       if (window.AA_DEMO) throw new Error('The preview is just you and King. Leave or delete pacts in the live app.');
       const p = state.partnerships.find((x) => x.id === Number(el.dataset.pid));
-      const { deleted } = await api('POST', `/api/partnerships/${p.id}/leave`, { today: localToday() });
+      const { deleted, undo_id } = await api('POST', `/api/partnerships/${p.id}/leave`, { today: localToday() });
       state.pactConfirm = null;
       await boot(); // back to your saved pact, or the next one, or the start screen
       if (!state.partnerships.length) state.pactsEdit = false;
-      toast(deleted ? `Deleted ${p.name}.` : `You left ${p.name}.`);
+      toast(deleted ? `Deleted ${p.name}.` : `You left ${p.name}.`, { label: 'Undo', run: () => undoLeave(undo_id) });
+    },
+    async 'undo-leave'(el) {
+      await undoLeave(Number(el.dataset.leave));
     },
     'toggle-pacts'() {
       state.pactsEdit = false;

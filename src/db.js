@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS memberships (
   PRIMARY KEY (partnership_id, user_id)
 );
 
+-- Leaving (or deleting) a pact, kept for 24 hours so it can be undone: what
+-- the leave changed, to put back exactly. A pact with nobody left in it
+-- stays until its last leave expires, then it's deleted for real.
+CREATE TABLE IF NOT EXISTS leaves (
+  id              INTEGER PRIMARY KEY,
+  partnership_id  INTEGER NOT NULL REFERENCES partnerships(id) ON DELETE CASCADE,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  data            TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT ${NOW}
+);
+
 -- A shared goal: one person proposes, the other agrees. Once active, every
 -- member gets their own habit row pointing at it (habits.goal_id), so
 -- check-ins and scoring work exactly like personal habits.
