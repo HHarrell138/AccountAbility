@@ -16,6 +16,8 @@ const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 // Must match the icon keys in public/app.js.
 const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake', 'run', 'prayer'];
+// Logged by typing the amount each time, never a fixed + tap.
+const TYPED_ICONS = ['protein', 'calories'];
 const round2 = (n) => Math.round(n * 100) / 100;
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -428,6 +430,7 @@ function createApp({ dbFile = ':memory:' } = {}) {
     if (!HABIT_ICONS.includes(icon)) fail(400, 'Unknown habit icon');
     const schedule = parseSchedule(body.schedule);
     const amounts = amountFields(body);
+    if (TYPED_ICONS.includes(icon)) amounts.step = 0; // protein and calories: type the amount each time
     return {
       title: str(body.title, 'Goal', { max: 80 }),
       why: str(body.why, 'Why', { max: 200, required: false }),
@@ -508,6 +511,7 @@ function createApp({ dbFile = ':memory:' } = {}) {
     // so no feed entry.
     if (body.step !== undefined) {
       if (!(h.daily_amount > 0)) fail(400, 'That goal is not logged by amount');
+      if (TYPED_ICONS.includes(h.icon)) fail(400, 'Protein and calories are typed in each time');
       q('UPDATE habits SET step = ? WHERE id = ?').run(parseStep(body.step, h.daily_amount), h.id);
     }
     // Change your own times on a scheduled goal. Your partner sees that you did.

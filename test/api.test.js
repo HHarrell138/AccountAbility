@@ -365,10 +365,15 @@ test('log as you go: + adds up, hitting the amount counts as done, taking back u
   assert.deepEqual((await a('POST', '/api/amounts', { habit_id: protein.id, delta: 42, today })).data, { amount: 42, total: 42, done: false, also: [] });
 
   // Shared goals carry the amount to both of you.
-  const g = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Eat 150g of protein', icon: 'protein', target_per_week: 7, daily_amount: 150, unit: 'g', step: 10, today })).data.goal;
+  const g = (await a('POST', '/api/goals', { partnership_id: pid, title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 16, today })).data.goal;
   await b('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
   dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
-  assert.deepEqual(dash.habits.filter((h) => h.goal_id === g.id).map((h) => [h.daily_amount, h.unit, h.step]), [[150, 'g', 10], [150, 'g', 10]]);
+  assert.deepEqual(dash.habits.filter((h) => h.goal_id === g.id).map((h) => [h.daily_amount, h.unit, h.step]), [[128, 'oz', 16], [128, 'oz', 16]]);
+
+  // Protein and calories are always typed in: no fixed tap, even if one is sent.
+  const cal = (await a('POST', '/api/habits', { partnership_id: pid, title: 'Eat at least 2,500 calories', icon: 'calories', target_per_week: 7, daily_amount: 2500, unit: 'cal', step: 100, today })).data.habit;
+  assert.equal(cal.step, 0);
+  assert.equal((await a('PATCH', `/api/habits/${protein.id}`, { step: 25 })).status, 400);
 });
 
 test('weekly run: miles add up across the week, and the total counts once', async (t) => {

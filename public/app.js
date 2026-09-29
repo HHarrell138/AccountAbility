@@ -1070,6 +1070,8 @@
   // ---------- log-as-you-go amounts ----------
 
   const tracked = (h) => h.daily_amount > 0;
+  // Protein and calories: + always opens a box to type the amount.
+  const typed = (h) => h.icon === 'protein' || h.icon === 'calories';
   const weekly = (h) => tracked(h) && h.amount_period === 'week';
 
   // Weekly amount goals: this week's total and target (scaled the week the
@@ -1170,7 +1172,7 @@
                ${got > 0 && h.step > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
                ${h.step > 0 ? `<button class="link" data-action="open-amount" data-where="card" data-habit="${h.id}">Add…</button>` : ''}
                ${personalPreset(h.icon) ? `<button class="link quiet" data-action="edit-number" data-habit="${h.id}">Edit number</button>` : ''}
-               <button class="link quiet" data-action="open-step" data-habit="${h.id}">Tap size</button>
+               ${typed(h) ? '' : `<button class="link quiet" data-action="open-step" data-habit="${h.id}">Tap size</button>`}
                ${got > 0 ? `<button class="link quiet" data-action="reset-amount" data-habit="${h.id}">${weekly(h) ? 'Reset today' : 'Reset'}</button>` : ''}
              </span>`
           : ''}

@@ -147,6 +147,8 @@ function migrate(db) {
     if (!cols.includes('unit')) db.exec(`ALTER TABLE ${table} ADD COLUMN unit TEXT NOT NULL DEFAULT ''`);
     if (!cols.includes('step')) db.exec(`ALTER TABLE ${table} ADD COLUMN step REAL NOT NULL DEFAULT 0`);
     if (!cols.includes('amount_period')) db.exec(`ALTER TABLE ${table} ADD COLUMN amount_period TEXT NOT NULL DEFAULT 'day'`);
+    // Protein and calories are typed in each time (older calorie goals had +100 taps).
+    db.exec(`UPDATE ${table} SET step = 0 WHERE icon IN ('protein', 'calories') AND step != 0`);
   }
 }
 
