@@ -712,3 +712,12 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .recap-note { color: var(--ink); font-style: italic; }
 .recap-link { display: block; margin: 12px 0 0; font-size: 0.9rem; }
 .recap > p.small { margin: 0 0 14px; }
+
+/* ---------- notifications ---------- */
+
+.account-block .check { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 0.92rem; }
+.account-block .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--you); }
+.account-block select { margin-top: 6px; }
+.push-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; border-color: var(--accent-line); }
+.push-prompt p { margin: 0 0 6px; }
+.push-prompt .row { margin-top: 10px; }

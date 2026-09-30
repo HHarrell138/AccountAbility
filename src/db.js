@@ -43,6 +43,22 @@ CREATE TABLE IF NOT EXISTS memberships (
   PRIMARY KEY (partnership_id, user_id)
 );
 
+-- Server-wide values, e.g. the key pair notifications are signed with.
+CREATE TABLE IF NOT EXISTS settings (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
+);
+
+-- Phones and browsers that turned notifications on, one row each.
+CREATE TABLE IF NOT EXISTS push_subs (
+  id          INTEGER PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint    TEXT NOT NULL UNIQUE,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT ${NOW}
+);
+
 -- One-time password reset codes. There's no email, so a partner makes one
 -- for you (the feed shows they did) and you use it within a day.
 CREATE TABLE IF NOT EXISTS reset_codes (
@@ -159,6 +175,12 @@ function migrate(db) {
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!userCols.includes('email')) db.exec('ALTER TABLE users ADD COLUMN email TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email) WHERE email IS NOT NULL');
+  // Notification settings: your time zone, the evening reminder time (NULL =
+  // off), whether your partner's check-ins buzz you, and the last day reminded.
+  if (!userCols.includes('tz')) db.exec('ALTER TABLE users ADD COLUMN tz TEXT');
+  if (!userCols.includes('remind_at')) db.exec("ALTER TABLE users ADD COLUMN remind_at TEXT DEFAULT '20:00'");
+  if (!userCols.includes('notify_partner')) db.exec('ALTER TABLE users ADD COLUMN notify_partner INTEGER NOT NULL DEFAULT 1');
+  if (!userCols.includes('last_reminded')) db.exec('ALTER TABLE users ADD COLUMN last_reminded TEXT');
   const habitCols = db.prepare('PRAGMA table_info(habits)').all().map((c) => c.name);
   if (!habitCols.includes('icon')) db.exec("ALTER TABLE habits ADD COLUMN icon TEXT NOT NULL DEFAULT 'check'");
   if (!habitCols.includes('goal_id')) db.exec('ALTER TABLE habits ADD COLUMN goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE');

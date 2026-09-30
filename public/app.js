@@ -174,6 +174,7 @@
       const saved = Number(store('aa.pid'));
       state.pid = (me.partnerships.find((p) => p.id === saved) || me.partnerships[0] || {}).id ?? null;
       if (state.pid) await loadDash();
+      checkPush(); // in the background
     } catch (err) {
       if (err.status !== 401) toast(err.message);
       state.user = null;
@@ -323,6 +324,7 @@
       ${state.pactsOpen ? pactsMenu() : ''}
 
       ${progressCard()}
+      ${pushPromptCard()}
       ${waiting ? inviteCard() : ''}
       ${state.recap && (state.recapOpen || !store(recapKey(state.recap))) ? recapCard(state.recap) : ''}
       ${streakCard()}
@@ -462,12 +464,67 @@
       </section>`;
   }
 
+  // Turn notifications on for this phone, and pick what buzzes you.
+  function notificationsBlock() {
+    const partner = state.dash.members.find((m) => !isMe(m.id));
+    const pname = partner ? esc(partner.name) : 'your partner';
+    let body;
+    if (!pushSupported()) {
+      body = onIphoneNotInstalled()
+        ? `<p class="small muted">On iPhone, notifications work once AccountAbility is on your Home Screen. Tap Share, then Add to Home Screen, and open it from there.</p>`
+        : `<p class="small muted">${window.AA_DEMO ? 'Notifications work in the live app, not the preview.' : "This browser can't do notifications."}</p>`;
+    } else if (Notification.permission === 'denied') {
+      body = `<p class="small muted">Notifications are blocked for AccountAbility. Turn them on in your phone's Settings, then come back here.</p>`;
+    } else if (!state.pushOn) {
+      body = `<p class="small muted">Get buzzed when ${pname} nudges you or checks in, plus an evening reminder if you still have goals open.</p>
+        <button class="btn small primary" data-action="push-on">${uiIcon('bell')}Turn on notifications</button>`;
+    } else {
+      const times = ['18:00', '19:00', '20:00', '21:00', '22:00'];
+      const label = (t) => `${Number(t.slice(0, 2)) - 12}:00 PM`;
+      const r = state.user.remind_at;
+      body = `
+        <label for="remind-at">Evening reminder, if goals are left
+          <select id="remind-at" data-action="set-remind">
+            <option value="" ${r ? '' : 'selected'}>Off</option>
+            ${times.map((t) => `<option value="${t}" ${r === t ? 'selected' : ''}>${label(t)}</option>`).join('')}
+            ${r && !times.includes(r) ? `<option value="${esc(r)}" selected>${esc(r)}</option>` : ''}
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" data-action="set-notify-partner" ${state.user.notify_partner ? 'checked' : ''}> When ${pname} checks in or misses</label>
+        <p class="small muted">Nudges, cheers and goal requests always come through.</p>
+        <div class="row">
+          <button class="btn small" data-action="push-test">Send a test</button>
+          <button class="link quiet" data-action="push-off">Turn off on this phone</button>
+        </div>`;
+    }
+    return `<div class="account-block"><p class="eyebrow">Notifications</p>${body}</div>`;
+  }
+
+  // A one-time nudge on the dashboard to turn notifications on.
+  function pushPromptCard() {
+    if (!pushSupported() || state.pushOn || Notification.permission === 'denied' || store('aa.pushPrompt')) return '';
+    const partner = state.dash.members.find((m) => !isMe(m.id));
+    return `
+      <section class="card push-prompt">
+        <span class="icon-tile">${uiIcon('bell')}</span>
+        <div>
+          <p><strong>Turn on notifications</strong></p>
+          <p class="small muted">Know when ${partner ? esc(partner.name) : 'your partner'} checks in or nudges you, and get an evening reminder if goals are still open.</p>
+          <div class="row">
+            <button class="btn small primary" data-action="push-prompt-on">Turn on</button>
+            <button class="btn small" data-action="push-later">Not now</button>
+          </div>
+        </div>
+      </section>`;
+  }
+
   // Your password, and a reset code for a partner who's locked out.
   function accountPanel() {
     const partners = state.dash.members.filter((m) => !isMe(m.id));
     const code = state.resetCode;
     return `
       <div class="account">
+        ${notificationsBlock()}
         <form data-form="email" class="account-block">
           <p class="eyebrow">Your email</p>
           ${state.user.email ? '' : `<p class="small muted">Add it to log in with it, and to reset your password by email if you forget it.</p>`}
@@ -1584,6 +1641,44 @@
     return { title, ...(p.track ? { daily_amount: Number(f.amount.value) * (p.track.per || 1) } : {}) };
   }
 
+  // ---------- notifications ----------
+
+  const pushSupported = () => !window.AA_DEMO && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const onIphoneNotInstalled = () => /iPhone|iPad|iPod/.test(navigator.userAgent) && !(navigator.standalone || matchMedia('(display-mode: standalone)').matches);
+
+  // Is this phone subscribed? If it is but the server lost track (say the
+  // subscription was renewed), tell the server again.
+  async function checkPush() {
+    if (!pushSupported()) return;
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const sub = await reg.pushManager.getSubscription();
+      state.pushOn = Boolean(sub) && Notification.permission === 'granted';
+      if (state.pushOn && !state.user.push_count) {
+        ({ user: state.user } = await api('POST', '/api/push/subscribe', { subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+      }
+      render();
+    } catch {
+      // No notifications on this browser; the app works the same without them.
+    }
+  }
+
+  async function enablePush() {
+    // iPhone only allows this as the direct result of a tap, so ask first.
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error("Notifications are blocked. Turn them on for AccountAbility in your phone's Settings.");
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const { publicKey } = await api('GET', '/api/push/key');
+    const key = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    ({ user: state.user } = await api('POST', '/api/push/subscribe', { subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+    state.pushOn = true;
+    store('aa.pushPrompt', 'done');
+    render();
+    toast('Notifications on. Try Send a test.');
+  }
+
   // Undo a leave or delete, and take you back into that pact.
   async function undoLeave(id) {
     const { partnership } = await api('POST', `/api/leaves/${id}/undo`, {});
@@ -1776,6 +1871,33 @@
       state.recap = null;
       render();
     },
+    async 'push-on'() {
+      await enablePush();
+    },
+    async 'push-off'() {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && (await reg.pushManager.getSubscription());
+      if (sub) {
+        ({ user: state.user } = await api('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }));
+        await sub.unsubscribe();
+      }
+      state.pushOn = false;
+      render();
+      toast('Notifications off on this phone.');
+    },
+    async 'push-test'() {
+      await api('POST', '/api/push/test', {});
+      toast('Sent. It should show up in a few seconds.');
+    },
+    'push-later'() {
+      store('aa.pushPrompt', 'later');
+      render();
+    },
+    async 'push-prompt-on'() {
+      state.pactsOpen = true;
+      state.accountOpen = true;
+      await enablePush();
+    },
     'toggle-account'() {
       state.accountOpen = !state.accountOpen;
       state.resetCode = null;
@@ -1896,7 +2018,24 @@
 
   app.addEventListener('change', (ev) => {
     const el = ev.target;
+    if (el.dataset.action === 'set-remind') {
+      guarded(async () => {
+        ({ user: state.user } = await api('PATCH', '/api/me', { remind_at: el.value || null }));
+        toast(el.value ? `Reminder set for ${el.selectedOptions[0].textContent}.` : 'Evening reminder off.');
+      });
+    } else if (el.dataset.action === 'set-notify-partner') {
+      guarded(async () => {
+        ({ user: state.user } = await api('PATCH', '/api/me', { notify_partner: el.checked }));
+      });
+    }
   });
+
+  // A notification came in while the app is open: pull in what happened.
+  if (!window.AA_DEMO && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      if (ev.data === 'refresh' && state.pid) guarded(refresh);
+    });
+  }
 
   // Keep the partner's side fresh without clobbering anything you're typing.
   setInterval(() => {

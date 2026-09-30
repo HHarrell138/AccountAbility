@@ -758,3 +758,72 @@ test('sign up with email; log in with email or an old username; reset by email',
   t.after(() => noMail.close());
   assert.equal((await client(`http://127.0.0.1:${noMail.address().port}`)('POST', '/api/forgot', { email: 'jake@example.com' })).status, 503);
 });
+
+test('notifications: who gets buzzed, settings, and the evening reminder', async (t) => {
+  const pushes = [];
+  let status = 201;
+  const server = createApp({ sendPush: async (sub, msg) => (pushes.push({ endpoint: sub.endpoint, ...msg }), status) });
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const tick = () => new Promise((r) => setTimeout(r, 30));
+  const hank = client(base);
+  const king = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', email: 'king@example.com', password: 'password123' });
+  const pact = (await hank('POST', '/api/partnerships', { name: 'Hank & King', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: pact.invite_code });
+  const kingId = (await king('GET', '/api/me')).data.user.id;
+  const sub = (host, n) => ({ endpoint: `https://${host}/send/${n}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+
+  assert.match((await hank('GET', '/api/push/key')).data.publicKey, /^[A-Za-z0-9_-]{87}$/);
+  assert.equal((await hank('POST', '/api/push/subscribe', { subscription: sub('evil.example.com', 1) })).status, 400);
+  assert.equal((await hank('POST', '/api/push/subscribe', { subscription: sub('web.push.apple.com', 'hank'), tz: 'UTC' })).data.user.push_count, 1);
+  await king('POST', '/api/push/subscribe', { subscription: sub('fcm.googleapis.com', 'king'), tz: 'America/Regina' }); // UTC-6 all year
+  assert.equal((await king('POST', '/api/push/subscribe', { subscription: sub('fcm.googleapis.com', 'x'), tz: 'Mars/Base' })).status, 400);
+
+  // Hank's shared goal and a check-in: King hears about both.
+  const g = (await hank('POST', '/api/goals', { partnership_id: pact.id, title: 'Work out', icon: 'workout', target_per_week: 4, today })).data.goal;
+  await tick();
+  assert.deepEqual(pushes.map((p) => [p.endpoint.split('/').pop(), p.title]), [['king', 'Hank proposed a shared goal']]);
+  await king('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+  const dash = (await hank('GET', `/api/partnerships/${pact.id}/dashboard?today=${today}`)).data;
+  const mine = dash.habits.find((h) => h.goal_id === g.id && h.user_id !== kingId);
+  pushes.length = 0;
+  await hank('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today });
+  await tick();
+  assert.deepEqual(pushes.map((p) => [p.endpoint.split('/').pop(), p.title, p.body]), [['king', 'Hank did Work out', 'Hank & King']]);
+
+  // King turns partner activity off: no more check-ins, but nudges still land.
+  await king('PATCH', '/api/me', { notify_partner: false });
+  pushes.length = 0;
+  await hank('POST', '/api/checkins/undo', { habit_id: mine.id, today });
+  await hank('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today });
+  await hank('POST', `/api/partnerships/${pact.id}/nudges`, { kind: 'nudge', to_user_id: kingId, habit_id: dash.habits.find((h) => h.goal_id === g.id && h.user_id === kingId).id });
+  await tick();
+  assert.deepEqual(pushes.map((p) => [p.endpoint.split('/').pop(), p.title, p.body]), [['king', 'Hank nudged you', 'About Work out']]);
+
+  // The test button reaches your own phone; a dead subscription is dropped.
+  pushes.length = 0;
+  assert.equal((await hank('POST', '/api/push/test', {})).data.sent, 1);
+  status = 410;
+  assert.equal((await hank('POST', '/api/push/test', {})).status, 502);
+  assert.equal((await hank('GET', '/api/me')).data.user.push_count, 0);
+  status = 201;
+
+  // Evening reminder: King (8pm his time) with his workout still open.
+  const at = (hhmm) => new Date(`${today}T${hhmm}:00-06:00`);
+  pushes.length = 0;
+  await server.runReminders(at('19:59'));
+  assert.equal(pushes.length, 0); // not yet
+  await server.runReminders(at('20:01'));
+  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['1 goal left today', 'Work out. Hank is counting on you.']]);
+  await server.runReminders(at('20:30'));
+  assert.equal(pushes.length, 1); // once a day
+
+  // Reminder off, or everything done: nothing.
+  await king('PATCH', '/api/me', { remind_at: null });
+  assert.equal((await king('GET', '/api/me')).data.user.remind_at, null);
+  assert.equal((await king('PATCH', '/api/me', { remind_at: '25:00' })).status, 400);
+});

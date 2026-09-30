@@ -7,6 +7,12 @@ const crypto = require('node:crypto');
 const { openDb } = require('./db');
 const L = require('./logic');
 const mail = require('./mail');
+const push = require('./push');
+
+// Only real push services get our POSTs (a subscription is just a URL the
+// browser hands us, so don't let it point anywhere else).
+const PUSH_HOSTS = ['push.apple.com', 'fcm.googleapis.com', 'android.googleapis.com', 'push.services.mozilla.com', 'notify.windows.com'];
+const isPushService = (url) => url.protocol === 'https:' && PUSH_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`));
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SESSION_COOKIE = 'aa_session';
@@ -111,7 +117,12 @@ function inviteCode() {
 // ---------- app ----------
 
 // sendMail is swappable for tests; by default it's SMTP from the environment.
-function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail.sendMail(m) : null } = {}) {
+function createApp({
+  dbFile = ':memory:',
+  sendMail = mail.config() ? (m) => mail.sendMail(m) : null,
+  sendPush = push.sendPush, // swappable for tests, like pushAllowed
+  pushAllowed = isPushService,
+} = {}) {
   const db = openDb(dbFile);
   const q = (sql) => db.prepare(sql);
 
@@ -154,11 +165,16 @@ function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail
     res.setHeader('Set-Cookie', sessionCookie(req, token, SESSION_TTL_MS / 1000));
   }
 
+  // What the app knows about you: who you are, and your notification settings.
+  const USER_FIELDS = `u.id, u.name, u.username, u.email, u.tz, u.remind_at, u.notify_partner,
+    (SELECT COUNT(*) FROM push_subs ps WHERE ps.user_id = u.id) AS push_count`;
+  const currentUserById = (id) => q(`SELECT ${USER_FIELDS} FROM users u WHERE u.id = ?`).get(id);
+
   function currentUser(req) {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     if (!token) return null;
     const row = q(
-      `SELECT u.id, u.name, u.username, u.email FROM sessions s JOIN users u ON u.id = s.user_id
+      `SELECT ${USER_FIELDS} FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > ?`
     ).get(token, Date.now());
     return row || null;
@@ -229,11 +245,131 @@ function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail
   }
 
   function addEvent(e) {
-    q(
+    const { id } = q(
       `INSERT INTO events (partnership_id, actor_id, target_id, habit_id, checkin_id, kind, message, day)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(e.partnership_id, e.actor_id, e.target_id ?? null, e.habit_id ?? null, e.checkin_id ?? null, e.kind, e.message ?? '', e.day ?? null);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+    ).get(e.partnership_id, e.actor_id, e.target_id ?? null, e.habit_id ?? null, e.checkin_id ?? null, e.kind, e.message ?? '', e.day ?? null);
+    // After the request's transaction settles: only events that stuck buzz anyone.
+    setImmediate(() => notifyEvent(id));
   }
+
+  // ---------- notifications ----------
+
+  // The key pair notifications are signed with, made once and kept.
+  const vapid = (() => {
+    const row = q("SELECT value FROM settings WHERE key = 'vapid'").get();
+    if (row) return JSON.parse(row.value);
+    const { jwk } = push.newVapidKeys();
+    q("INSERT INTO settings (key, value) VALUES ('vapid', ?)").run(JSON.stringify(jwk));
+    return jwk;
+  })();
+  const vapidSubject = process.env.VAPID_SUBJECT || (process.env.SMTP_USER ? `mailto:${process.env.SMTP_USER}` : 'mailto:noreply@accountability.app');
+
+  // Buzz every phone these people turned notifications on for. Never throws;
+  // a subscription the push service says is gone gets deleted.
+  async function notify(userIds, message) {
+    const subs = userIds.flatMap((uid) => q('SELECT * FROM push_subs WHERE user_id = ?').all(uid));
+    let sent = 0;
+    await Promise.all(
+      subs.map(async (s) => {
+        try {
+          const status = await sendPush(s, message, { jwk: vapid, subject: vapidSubject });
+          if (status === 404 || status === 410) q('DELETE FROM push_subs WHERE id = ?').run(s.id);
+          else if (status < 300) sent++;
+          else console.error(`push ${status} for sub ${s.id}`);
+        } catch (err) {
+          console.error('push failed:', err.message);
+        }
+      })
+    );
+    return sent;
+  }
+
+  // Who hears about an event, and what it says. Your partner's check-ins
+  // follow their "partner activity" setting; nudges, cheers, proposals and
+  // the rest always go through.
+  function notifyEvent(eventId) {
+    const e = q(
+      `SELECT e.*, a.name AS actor, t.name AS target, h.title AS habit, p.name AS pact FROM events e
+       JOIN users a ON a.id = e.actor_id LEFT JOIN users t ON t.id = e.target_id
+       LEFT JOIN habits h ON h.id = e.habit_id JOIN partnerships p ON p.id = e.partnership_id WHERE e.id = ?`
+    ).get(eventId);
+    if (!e) return; // rolled back, or replaced already
+    const others = memberIds(e.partnership_id).filter((id) => id !== e.actor_id);
+    const optedIn = (ids) => ids.filter((id) => q('SELECT notify_partner FROM users WHERE id = ?').get(id)?.notify_partner);
+    const late = e.kind.endsWith('_late') ? ' (for yesterday)' : '';
+    const say = {
+      nudge: [[e.target_id], `${e.actor} nudged you`, e.message || (e.habit ? `About ${e.habit}` : e.pact)],
+      cheer: [[e.target_id], `${e.actor} cheered you on`, e.message || (e.habit ? `For ${e.habit}` : e.pact)],
+      done: [optedIn(others), `${e.actor} did ${e.habit}${late}`, e.pact],
+      missed: [optedIn(others), `${e.actor} missed ${e.habit}${late}`, e.message ? `“${e.message}”` : e.pact],
+      goal_proposed: [others, `${e.actor} proposed a shared goal`, `${e.message}. Open the app to agree.`],
+      goal_accepted: [others, `${e.actor} agreed to ${e.message}`, 'You’re both on it.'],
+      goal_ended: [others, `${e.actor} ended ${e.habit}`, e.pact],
+      joined: [others, `${e.actor} joined ${e.pact}`, 'Agree on your first shared goal.'],
+      left: [others, `${e.actor} left ${e.pact}`, 'Your shared goals there ended.'],
+      reset_code: [[e.target_id], `${e.actor} made you a password reset code`, "If you didn't ask for one, check with them."],
+    }[e.kind.replace('_late', '')];
+    if (!say || !say[0].length) return;
+    notify(say[0], { title: say[1], body: say[2], tag: `${e.partnership_id}-${e.kind}-${e.habit_id || ''}`, url: '/' });
+  }
+
+  // Your goals still open today (in your time zone), one per goal even when
+  // it's linked across pacts. Weekly-miles goals and goals whose week is
+  // already hit don't nag.
+  function goalsLeft(userId, day) {
+    const habits = q(
+      `SELECT h.* FROM habits h JOIN memberships m ON m.partnership_id = h.partnership_id AND m.user_id = h.user_id
+       WHERE h.user_id = ? AND h.archived_day IS NULL AND h.created_day <= ? ORDER BY h.partnership_id, h.position, h.id`
+    ).all(userId, day);
+    const week = L.weekStart(day);
+    const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${day}T00:00:00Z`).getUTCDay()];
+    const seen = new Set();
+    return habits.filter((h) => {
+      if (h.amount_period === 'week') return false;
+      if (h.schedule && !JSON.parse(h.schedule)[dayKey]) return false;
+      if (q('SELECT 1 FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day)) return false;
+      const { n } = q(`SELECT COUNT(*) AS n FROM checkins WHERE habit_id = ? AND status = 'done' AND day BETWEEN ? AND ?`).get(h.id, week, day);
+      if (n >= L.effectiveTarget(h, week)) return false;
+      const key = linkKey(h);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  // The evening reminder, checked every minute: at your time, in your time
+  // zone, once a day, only if something's still open. Past two hours late
+  // (say the server was down), it skips the day rather than buzz at 2am.
+  async function runReminders(now = new Date()) {
+    const users = q(
+      `SELECT * FROM users WHERE remind_at IS NOT NULL AND tz IS NOT NULL AND id IN (SELECT user_id FROM push_subs)`
+    ).all();
+    for (const u of users) {
+      let parts;
+      try {
+        parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: u.tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).map((p) => [p.type, p.value]));
+      } catch {
+        continue;
+      }
+      const day = `${parts.year}-${parts.month}-${parts.day}`;
+      if (u.last_reminded === day) continue;
+      const [rh, rm] = u.remind_at.split(':').map(Number);
+      const late = Number(parts.hour) * 60 + Number(parts.minute) - (rh * 60 + rm);
+      if (late < 0) continue;
+      q('UPDATE users SET last_reminded = ? WHERE id = ?').run(day, u.id);
+      if (late > 120) continue;
+      const left = goalsLeft(u.id, day);
+      if (!left.length) continue;
+      const partners = [...new Set(left.flatMap((h) => q(
+        'SELECT u.name FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.partnership_id = ? AND m.user_id != ?'
+      ).all(h.partnership_id, u.id).map((r) => r.name)))];
+      const titles = left.slice(0, 3).map((h) => h.title).join(', ') + (left.length > 3 ? '…' : '');
+      const who = partners.length ? ` ${partners.slice(0, 2).join(' and ')} ${partners.length === 1 ? 'is' : 'are'} counting on you.` : '';
+      await notify([u.id], { title: `${left.length} goal${left.length === 1 ? '' : 's'} left today`, body: `${titles}.${who}`, tag: 'reminder', url: '/' });
+    }
+  }
+  setInterval(() => runReminders().catch((err) => console.error('reminders:', err.message)), 60 * 1000).unref();
 
   // ---------- handlers ----------
 
@@ -273,13 +409,68 @@ function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail
   };
 
   // Add or change your email, so you can log in with it.
+  // Your email and notification settings. Only what's sent changes.
   route('PATCH', '/api/me', ({ user, body }) => {
-    const email = parseEmail(body.email);
-    const taken = q('SELECT id FROM users WHERE (email = ? OR username = ?) AND id != ?').get(email, email, user.id);
-    if (taken) fail(409, 'That email is already on another account');
-    q('UPDATE users SET email = ? WHERE id = ?').run(email, user.id);
-    return { user: { ...user, email } };
+    if (body.email !== undefined) {
+      const email = parseEmail(body.email);
+      const taken = q('SELECT id FROM users WHERE (email = ? OR username = ?) AND id != ?').get(email, email, user.id);
+      if (taken) fail(409, 'That email is already on another account');
+      q('UPDATE users SET email = ? WHERE id = ?').run(email, user.id);
+    }
+    if (body.remind_at !== undefined) {
+      if (body.remind_at !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.remind_at)) fail(400, 'Pick a reminder time');
+      q('UPDATE users SET remind_at = ? WHERE id = ?').run(body.remind_at, user.id);
+    }
+    if (body.notify_partner !== undefined) q('UPDATE users SET notify_partner = ? WHERE id = ?').run(body.notify_partner ? 1 : 0, user.id);
+    if (body.tz !== undefined) q('UPDATE users SET tz = ? WHERE id = ?').run(parseTz(body.tz), user.id);
+    return { user: currentUserById(user.id) };
   });
+
+  // ---------- notifications ----------
+
+  route('GET', '/api/push/key', () => ({ publicKey: push.publicKeyOf(vapid) }));
+
+  // This phone turned notifications on. It also tells us your time zone, so
+  // the evening reminder comes at your evening.
+  route('POST', '/api/push/subscribe', ({ user, body }) => {
+    const sub = body.subscription || {};
+    let url;
+    try {
+      url = new URL(sub.endpoint);
+    } catch {
+      fail(400, 'Bad subscription');
+    }
+    if (!pushAllowed(url)) fail(400, 'Unknown push service');
+    const keys = sub.keys || {};
+    if (!/^[A-Za-z0-9_-]{80,100}$/.test(keys.p256dh || '') || !/^[A-Za-z0-9_-]{16,32}$/.test(keys.auth || '')) fail(400, 'Bad subscription keys');
+    const tz = body.tz ? parseTz(body.tz) : null; // check everything before saving anything
+    q(
+      `INSERT INTO push_subs (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)
+       ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`
+    ).run(user.id, url.href, keys.p256dh, keys.auth);
+    if (tz) q('UPDATE users SET tz = ? WHERE id = ?').run(tz, user.id);
+    return { user: currentUserById(user.id) };
+  });
+
+  route('POST', '/api/push/unsubscribe', ({ user, body }) => {
+    q('DELETE FROM push_subs WHERE user_id = ? AND endpoint = ?').run(user.id, String(body.endpoint || ''));
+    return { user: currentUserById(user.id) };
+  });
+
+  route('POST', '/api/push/test', async ({ user }) => {
+    const sent = await notify([user.id], { title: 'Notifications are on', body: 'This is what a nudge from your partner looks like.', tag: 'test', url: '/' });
+    if (!sent) fail(502, "Couldn't reach your phone. Turn notifications off and on again.");
+    return { sent };
+  });
+
+  function parseTz(tz) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: String(tz) });
+      return String(tz);
+    } catch {
+      fail(400, 'Unknown time zone');
+    }
+  }
 
   route('POST', '/api/login', ({ body, req, res }) => {
     const login = str(body.login ?? body.email ?? body.username, 'Email').toLowerCase();
@@ -1041,7 +1232,11 @@ function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail
         if (!path.extname(rel)) return serveStatic(req, res, '/');
         return send(res, 404, { error: 'Not found' });
       }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+      res.writeHead(200, {
+        'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+        // The notification worker must always be fresh, or phones keep an old one.
+        ...(rel === 'sw.js' ? { 'Cache-Control': 'no-cache' } : {}),
+      });
       res.end(data);
     });
   }
@@ -1087,6 +1282,7 @@ function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail
   });
 
   server.on('close', () => db.close());
+  server.runReminders = runReminders; // for tests
   return server;
 }
 
