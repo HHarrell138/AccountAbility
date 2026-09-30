@@ -615,6 +615,16 @@ function createApp({
     });
   });
 
+  // What an invite link points at, so the sign-up screen can say who invited
+  // you. Only what the link's holder should see: the pact and who started it.
+  route('GET', '/api/invite', ({ query }) => {
+    const code = String(query.get('code') || '').toUpperCase();
+    const p = q('SELECT * FROM partnerships WHERE invite_code = ?').get(code);
+    const members = p ? q('SELECT u.name FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.partnership_id = ? ORDER BY m.joined_at').all(p.id) : [];
+    if (!members.length) fail(404, "That invite link doesn't work anymore. Ask for a new one.");
+    return { name: p.name, from: members[0].name, full: members.length >= p.max_members };
+  }, { auth: false });
+
   route('POST', '/api/partnerships/join', ({ user, body }) => {
     const code = str(body.code, 'Invite code', { max: 12 }).toUpperCase();
     return tx(() => {

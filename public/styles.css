@@ -766,3 +766,6 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .req-mine[open] > summary .chev { transform: rotate(180deg); }
 .req-mine[open] > summary { margin-bottom: 4px; }
 .proposals .card-title + .req ~ .req-mine, .req + .req-mine { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+.invite-banner { margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; background: var(--you-soft); border: 1px solid var(--accent-line); font-size: 0.95rem; }
+.invite-code { text-align: center; margin: 10px 0 0; }

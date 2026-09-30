@@ -173,11 +173,22 @@
       state.left = me.left || [];
       const saved = Number(store('aa.pid'));
       state.pid = (me.partnerships.find((p) => p.id === saved) || me.partnerships[0] || {}).id ?? null;
+      if (pendingJoin()) return joinFromLink();
       if (state.pid) await loadDash();
       checkPush(); // in the background
     } catch (err) {
       if (err.status !== 401) toast(err.message);
       state.user = null;
+      // Not logged in with an invite link: say who invited them, start on sign up.
+      if (pendingJoin() && !state.invite) {
+        try {
+          state.invite = await api('GET', `/api/invite?code=${encodeURIComponent(pendingJoin())}`);
+          state.authMode = 'signup';
+        } catch (e) {
+          store('aa.join', '');
+          toast(e.message);
+        }
+      }
     }
     render();
   }
@@ -223,6 +234,11 @@
         <h1 class="wordmark">AccountAbility</h1>
         <p class="tagline">Goals you keep because someone's counting on you.</p>
       </section>
+      ${state.invite
+        ? `<p class="invite-banner">${state.invite.full
+            ? `<strong>${esc(state.invite.name)}</strong> already has two people in it. You can still ${signup ? 'sign up' : 'log in'} and start your own pact.`
+            : `${esc(state.invite.from)} invited you to <strong>${esc(state.invite.name)}</strong>. ${signup ? 'Sign up' : 'Log in'} and you're in.`}</p>`
+        : ''}
       <form class="card" data-form="${signup ? 'signup' : 'login'}">
         <div class="tabs" role="tablist">
           <button type="button" role="tab" aria-selected="${signup}" data-action="auth-mode" data-mode="signup">Sign up</button>
@@ -681,9 +697,9 @@
     return `
       <section class="card invite">
         <h2 class="card-title">Bring in your partner</h2>
-        <p class="small">They sign up, tap <em>Join with a code</em>, and you're locked in. You can propose shared goals now; they start once your partner agrees.</p>
-        <div class="code">${esc(code)}</div>
-        <button class="btn wide" data-action="share-code" data-code="${esc(code)}">Share invite</button>
+        <p class="small">Send them the link. They sign up (or log in) and land right in your pact. You can propose shared goals now; they start once your partner agrees.</p>
+        <button class="btn primary wide" data-action="share-code" data-code="${esc(code)}">Share invite link</button>
+        <p class="small muted invite-code">Or they can join with the code <strong>${esc(code)}</strong></p>
         ${window.AA_DEMO ? `<button class="btn primary wide" data-action="demo-join">Preview: have your partner join</button>` : ''}
       </section>`;
   }
@@ -1588,6 +1604,28 @@
     }
   }
 
+  // An invite link (/join/CODE) waits here through sign up or log in.
+  const pendingJoin = () => store('aa.join') || '';
+
+  async function joinFromLink() {
+    const code = pendingJoin();
+    store('aa.join', '');
+    state.invite = null;
+    try {
+      const { partnership } = await api('POST', '/api/partnerships/join', { code });
+      await afterJoinOrCreate(partnership.id);
+      checkPush();
+      toast(`You're in ${partnership.name}. Agree on your first shared goal.`);
+    } catch (err) {
+      const me = await api('GET', '/api/me');
+      state.partnerships = me.partnerships;
+      state.pid = me.partnerships[0]?.id ?? null;
+      if (state.pid) await loadDash();
+      render();
+      toast(err.message);
+    }
+  }
+
   async function afterJoinOrCreate(pid) {
     const me = await api('GET', '/api/me');
     state.partnerships = me.partnerships;
@@ -1636,6 +1674,7 @@
       const { user } = await api('POST', '/api/signup', { name: f.name.value, email: f.email.value, password: f.password.value });
       state.user = user;
       state.partnerships = [];
+      if (pendingJoin()) return joinFromLink();
       render();
     },
     async login(f) {
@@ -1957,7 +1996,7 @@
     },
     async 'share-code'(el) {
       const code = el.dataset.code;
-      const text = `Be my accountability partner on AccountAbility. Sign up at ${location.origin} and join with code ${code}`;
+      const text = `Be my accountability partner on AccountAbility: ${location.origin}/join/${code}`;
       if (navigator.share) {
         try {
           await navigator.share({ text });
@@ -2239,6 +2278,13 @@
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
     guarded(refresh);
   }, 30000);
+
+  // An invite link: remember the code through sign up, then join.
+  const joinPath = /^\/join\/([A-Za-z0-9]{4,12})\/?$/.exec(location.pathname);
+  if (joinPath) {
+    store('aa.join', joinPath[1].toUpperCase());
+    history.replaceState(null, '', '/');
+  }
 
   // A reset link from the email: open the reset form with the code filled in.
   const params = new URLSearchParams(location.search);

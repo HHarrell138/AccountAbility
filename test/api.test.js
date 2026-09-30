@@ -796,3 +796,21 @@ test('notifications: who gets buzzed, settings, and the evening reminder', async
   assert.equal((await king('GET', '/api/me')).data.user.remind_at, null);
   assert.equal((await king('PATCH', '/api/me', { remind_at: '25:00' })).status, 400);
 });
+
+test('invite links: who invited you, and dead links', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  const pact = (await hank('POST', '/api/partnerships', { name: 'Hank & Cash', today })).data.partnership;
+  const stranger = client(base); // not logged in
+  assert.deepEqual((await stranger('GET', `/api/invite?code=${pact.invite_code.toLowerCase()}`)).data, { name: 'Hank & Cash', from: 'Hank', full: false });
+  assert.equal((await stranger('GET', '/api/invite?code=NOPE99')).status, 404);
+  const cash = client(base);
+  await cash('POST', '/api/signup', { name: 'Cash', email: 'cash@example.com', password: 'password123' });
+  await cash('POST', '/api/partnerships/join', { code: pact.invite_code });
+  assert.equal((await stranger('GET', `/api/invite?code=${pact.invite_code}`)).data.full, true);
+});
