@@ -488,8 +488,11 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
   max-width: 28px;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: var(--surface-2);
+  /* An empty day still reads as a circle against the card. */
+  background: #1f252f;
+  box-shadow: inset 0 0 0 1.5px #3a4352;
 }
+.dot.done, .dot.missed, .dot.partial { box-shadow: none; }
 .tracker-row.you .dot.done { background: var(--you); }
 .tracker-row.them .dot.done { background: var(--them); }
 .dot.missed {
@@ -502,7 +505,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 button.dot { display: block; padding: 0; border: 0; font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 button.dot:active { transform: scale(0.88); }
 button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
-.dot.off { opacity: 0.35; }
+.dot.off { opacity: 0.5; }
 
 .tick {
   justify-self: end;
@@ -544,13 +547,7 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 
 .proposals { border: 2px dashed var(--them); box-shadow: none; }
 /* Each request is its own tile, so a stack of them reads as separate asks. */
-.proposal { display: flex; gap: 12px; margin-top: 12px; padding: 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; }
-.proposal-body { flex: 1 1 0; min-width: 0; }
 /* On the tile's lighter background, plain icons and buttons step back down to the card color. */
-.proposal { --tile-base: var(--surface); }
-.proposal .btn:not(.primary) { background: var(--surface); border: 1px solid var(--line); } /* basis 0: a long line wraps its text, not the whole body under the icon */
-.proposal-title { font: 700 1.05rem/1.25 var(--font-display); margin: 2px 0; overflow-wrap: anywhere; }
-.proposal .row .btn { flex: 0 1 auto; }
 
 /* ---------- goal picker ---------- */
 
@@ -634,7 +631,6 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .row-sched .ui-icon { width: 15px; height: 15px; margin-top: 2px; }
 .row-sched .link { grid-column: 2; justify-self: start; padding: 0; font-size: 0.82rem; }
 .accept-panel { flex-basis: 100%; }
-.proposal { flex-wrap: wrap; }
 .preview-title { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; font: 700 1.05rem var(--font-display); }
 .preview-title .hicon { width: 22px; height: 22px; color: var(--muted); flex: 0 0 auto; }
 
@@ -728,3 +724,45 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .push-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; border-color: var(--accent-line); }
 .push-prompt p { margin: 0 0 6px; }
 .push-prompt .row { margin-top: 10px; }
+
+/* ---------- one day ---------- */
+
+.day-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.day-title { text-align: center; }
+.day-title .title { margin: 0; }
+.day-head .icon-btn .prev { transform: rotate(90deg); }
+.day-head .icon-btn .next { transform: rotate(-90deg); }
+.day-badge { font-weight: 700; }
+.day-badge.live { color: var(--you); }
+.day-card { margin-top: 14px; }
+.day-detail { display: block; margin-top: 2px; white-space: normal; }
+.day-detail .today-note { font-weight: 600; }
+.day-bar { display: block; height: 6px; margin-top: 6px; max-width: 180px; }
+.day-row .today-title { white-space: normal; }
+.day-them { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+.day-them .av { width: 20px; height: 20px; font-size: 0.65rem; }
+.day-row.day-done .today-title { color: var(--muted); }
+.day-links { flex-basis: 100%; display: flex; gap: 16px; padding-left: 44px; font-size: 0.85rem; }
+.tick-mark.done { color: var(--you-ink); background: var(--you); }
+
+/* ---------- goal requests, compact ---------- */
+
+.proposals.quiet { padding-top: 12px; padding-bottom: 12px; border-style: solid; border-color: var(--line); }
+.proposals .card-title { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.req { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 0; }
+.req + .req { border-top: 1px solid var(--line); }
+.req-text { display: grid; min-width: 0; }
+.req-title { font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.req-text .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.req-actions { display: flex; gap: 6px; }
+/* Asked of you: the full title, with Agree and Pass underneath. */
+.req.ask { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+.req.ask .req-title { white-space: normal; }
+.req.ask .req-actions { grid-column: 2; }
+.req > .panel { grid-column: 1 / -1; }
+.req-mine > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; list-style: none; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.req-mine > summary::-webkit-details-marker { display: none; }
+.req-mine > summary .chev { width: 18px; height: 18px; transition: transform 0.2s; flex: 0 0 auto; }
+.req-mine[open] > summary .chev { transform: rotate(180deg); }
+.req-mine[open] > summary { margin-bottom: 4px; }
+.proposals .card-title + .req ~ .req-mine, .req + .req-mine { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }

@@ -205,6 +205,7 @@
   function render() {
     if (!state.user) app.innerHTML = authView();
     else if (state.view === 'settings') app.innerHTML = settingsView();
+    else if (state.view === 'day' && state.dash) app.innerHTML = dayView();
     else if (!state.pid || !state.dash) app.innerHTML = onboardView();
     else app.innerHTML = dashView();
     const focus = app.querySelector('[data-autofocus]');
@@ -518,6 +519,113 @@
       </section>`;
   }
 
+  // One day, every goal: tap any circle to get here. Today and yesterday can
+  // be logged; earlier days are to look at; later days show what's planned.
+  function dayView() {
+    const d = state.dash;
+    const day = state.day;
+    const start = weekStart(d.today);
+    const editable = canLogDay(day);
+    const future = day > d.today;
+    const badge = day === d.today ? 'Today' : day === addDays(d.today, -1) ? 'Yesterday' : future ? 'Coming up' : 'View only';
+    const partner = d.members.find((m) => !isMe(m.id));
+    const goals = d.habits
+      .filter((h) => isMe(h.user_id) && h.created_day <= day && (!h.archived_day || h.archived_day > day))
+      .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(a, b));
+
+    const rows = goals.map((h) => dayRow(h, day, editable, future, partner)).join('');
+    const nav = (delta) => {
+      const to = addDays(day, delta);
+      const inWeek = to >= start && to <= addDays(start, 6);
+      return `<button class="icon-btn" data-action="open-day" data-day="${to}" ${inWeek ? '' : 'disabled'} aria-label="${delta < 0 ? 'Previous' : 'Next'} day">${uiIcon('chevron', delta < 0 ? 'prev' : 'next')}</button>`;
+    };
+    return `
+      <header class="settings-top">
+        <button class="back" data-action="close-settings">${uiIcon('chevron', 'back-chev')}Back</button>
+      </header>
+      <div class="day-head">
+        ${nav(-1)}
+        <div class="day-title">
+          <h1 class="title">${esc(dayName(day))}</h1>
+          <p class="small muted">${esc(new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { month: 'long', day: 'numeric', timeZone: 'UTC' }))} · <span class="day-badge ${editable ? 'live' : ''}">${badge}</span></p>
+        </div>
+        ${nav(1)}
+      </div>
+      <section class="card day-card">
+        ${rows ? `<div class="today-list">${rows}</div>` : '<p class="empty">No goals on this day.</p>'}
+      </section>`;
+  }
+
+  // One goal on one day: what happened (or is planned), and on today and
+  // yesterday the same controls as the Today list.
+  function dayRow(h, day, editable, future, partner) {
+    const d = state.dash;
+    const sched = parseSched(h.schedule);
+    const time = sched && sched[dayKey(day)];
+    const off = sched && !time;
+    const title = time ? `Wake up by ${clockTime(time)}` : h.title;
+    const c = d.checkins.find((x) => x.habit_id === h.id && x.day === day);
+    const amt = tracked(h) ? amountOn(h, day) : 0;
+
+    let detail = '';
+    let control = '';
+    if (off) {
+      detail = '<span class="today-note">day off</span>';
+    } else if (tracked(h)) {
+      const target = weekly(h) ? null : h.daily_amount;
+      detail = `<span class="today-amount">${weekly(h)
+        ? `${esc(fmtAmount(amt, h.unit))} this day · ${esc(fmtAmount(weekTotal(h), ''))} / ${esc(fmtAmount(weekTarget(h), h.unit))} this week`
+        : `${esc(fmtAmount(amt, ''))} / ${esc(fmtAmount(target, h.unit))}`}</span>
+        ${weekly(h) ? '' : `<span class="bar combined ${amt >= target ? 'green' : ''} day-bar"><span style="width:${Math.min(100, Math.round((amt / target) * 100))}%"></span></span>`}`;
+      if (editable) {
+        control = plusButton(h, c?.status === 'done', 'day', true, day);
+      } else if (c?.status === 'done') control = `<span class="tick-mark done">${uiIcon('done')}</span>`;
+    } else if (editable) {
+      control = c?.status === 'done'
+        ? `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${day}" aria-label="${esc(title)}: done. Tap to undo.">${uiIcon('done')}</button>`
+        : `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${day}" aria-label="Mark ${esc(title)} done">${uiIcon('done')}</button>`;
+    } else if (c?.status === 'done') control = `<span class="tick-mark done">${uiIcon('done')}</span>`;
+    else if (c?.status === 'missed') control = `<span class="tick-mark missed">${uiIcon('x')}</span>`;
+
+    if (!off && !tracked(h)) {
+      if (c?.status === 'missed') detail = `<span class="today-note bad">missed${c.note ? `: “${esc(c.note)}”` : ''}</span>`;
+      else if (c?.status === 'done') detail = `<span class="today-note">${c.late ? 'done, logged late' : 'done'}</span>`;
+      else if (future) detail = '<span class="today-note">coming up</span>';
+      else if (!editable) detail = '<span class="today-note">not logged</span>';
+    }
+
+    // On a shared goal, how your partner did that day.
+    let them = '';
+    const theirs = h.goal_id && partner && d.habits.find((x) => x.goal_id === h.goal_id && x.user_id === partner.id);
+    if (theirs && !future) {
+      const tc = d.checkins.find((x) => x.habit_id === theirs.id && x.day === day);
+      const ta = tracked(theirs) ? amountOn(theirs, day) : 0;
+      const tsched = parseSched(theirs.schedule);
+      const tOff = tsched && !tsched[dayKey(day)];
+      const status = tOff ? 'day off' : tc?.status === 'done' ? 'done' : tc?.status === 'missed' ? 'missed' : tracked(theirs) && ta ? fmtAmount(ta, theirs.unit) : day < d.today ? 'not logged' : 'not yet';
+      them = `<span class="day-them">${avatar(partner)}${esc(partner.name)}: ${esc(status)}</span>`;
+    }
+
+    const missOpen = state.panel?.type === 'miss' && state.panel.habitId === h.id && state.panel.day === day;
+    const amountOpen = tracked(h) && panelFor(h, 'day') && state.panel.day === day;
+    const canMiss = editable && !off && !tracked(h) && !c;
+    const canReset = editable && tracked(h) && amt > 0;
+    return `
+      <div class="today-row day-row ${c ? `day-${c.status}` : ''} ${off ? 'off' : ''}">
+        <div class="today-name">
+          <span class="icon-tile sm">${iconSvg(h.icon)}</span>
+          <span class="today-title">${esc(title)}${detail ? `<span class="day-detail">${detail}</span>` : ''}${them}</span>
+        </div>
+        ${control}
+        ${canMiss || canReset
+          ? `<div class="day-links">${canMiss ? `<button class="link" data-action="open-miss" data-habit="${h.id}" data-day="${day}">Missed it?</button>` : ''}
+             ${canReset ? `<button class="link quiet" data-action="reset-amount" data-habit="${h.id}" data-day="${day}">Reset</button>` : ''}</div>`
+          : ''}
+        ${missOpen ? missPanel(h, day) : ''}
+        ${amountOpen ? amountPanel(h) : ''}
+      </div>`;
+  }
+
   // Account settings: its own page, from the pacts menu. Notifications,
   // email and password.
   function settingsView() {
@@ -776,39 +884,56 @@
   }
 
 
+  // Goal requests, kept small: ones waiting on your answer get a one-line
+  // row with Agree and Pass; ones you sent fold into a single line you can
+  // open to withdraw.
   function proposalsCard(proposals) {
     const d = state.dash;
     const nameOf = (id) => esc(d.members.find((m) => m.id === id)?.name || 'Your partner');
     const partner = d.members.find((m) => !isMe(m.id));
+    const incoming = proposals.filter((g) => !isMe(g.proposed_by));
+    const outgoing = proposals.filter((g) => isMe(g.proposed_by));
+    const sub = (g) => [esc(cadence(g)), g.personal ? 'your own number' : g.schedule ? 'your own times' : ''].filter(Boolean).join(' · ');
+
+    const ask = incoming
+      .map((g) => {
+        const accepting = state.panel?.type === 'accept' && state.panel.goalId === g.id;
+        return `
+          <div class="req ask">
+            <span class="icon-tile sm">${iconSvg(g.icon)}</span>
+            <div class="req-text">
+              <span class="req-title">${esc(g.title)}</span>
+              <span class="small muted">${nameOf(g.proposed_by)} · ${sub(g)}</span>
+            </div>
+            ${accepting
+              ? ''
+              : `<div class="req-actions">
+                   <button class="btn small primary" data-action="${g.schedule || g.personal ? 'open-accept' : 'respond'}" data-goal="${g.id}" data-answer="accept">Agree</button>
+                   <button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="decline">Pass</button>
+                 </div>`}
+            ${accepting ? (g.personal ? acceptNumberPanel(g, nameOf(g.proposed_by)) : g.schedule ? acceptPanel(g, nameOf(g.proposed_by)) : '') : ''}
+          </div>`;
+      })
+      .join('');
+
+    const sent = outgoing.length
+      ? `<details class="req-mine"${state.reqOpen ? ' open' : ''}>
+          <summary><span>${partner ? `Waiting on ${esc(partner.name)}` : 'Waiting for your partner to join'} · ${outgoing.length} sent</span>${uiIcon('chevron', 'chev')}</summary>
+          ${outgoing
+            .map((g) => `
+              <div class="req">
+                <span class="icon-tile sm">${iconSvg(g.icon)}</span>
+                <div class="req-text"><span class="req-title">${esc(g.title)}</span><span class="small muted">${sub(g)}</span></div>
+                <button class="link quiet" data-action="respond" data-goal="${g.id}" data-answer="withdraw">Withdraw</button>
+              </div>`)
+            .join('')}
+        </details>`
+      : '';
+
     return `
-      <section class="card proposals">
-        <h2 class="card-title">Waiting for a yes</h2>
-        ${proposals
-          .map((g) => {
-            const mine = isMe(g.proposed_by);
-            return `
-            <div class="proposal">
-              <span class="icon-tile">${iconSvg(g.icon)}</span>
-              <div class="proposal-body">
-                <p class="small muted">${mine ? `You proposed. ${partner ? `Waiting on ${esc(partner.name)}.` : 'Waiting for your partner to join.'}` : `${nameOf(g.proposed_by)} wants you both to`}</p>
-                <p class="proposal-title">${esc(g.title)}</p>
-                <p class="small muted">${g.schedule ? `${mine ? 'Your' : `${nameOf(g.proposed_by)}'s`} times: ` : ''}${esc(cadence(g))}${g.why ? ` · ${esc(g.why)}` : ''}</p>
-                ${g.personal ? `<p class="small muted">${mine ? `That's your number. ${partner ? esc(partner.name) : 'Your partner'} sets their own.` : `That's ${nameOf(g.proposed_by)}'s number. You set your own.`}</p>` : ''}
-                <div class="row">
-                  ${mine
-                    ? `<button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="withdraw">Withdraw</button>`
-                    : state.panel?.type === 'accept' && state.panel.goalId === g.id
-                      ? ''
-                      : `<button class="btn small primary" data-action="${g.schedule || g.personal ? 'open-accept' : 'respond'}" data-goal="${g.id}" data-answer="accept">${uiIcon('done')}Agree</button>
-                       <button class="btn small" data-action="respond" data-goal="${g.id}" data-answer="decline">Pass</button>`}
-                </div>
-              </div>
-              ${!mine && state.panel?.type === 'accept' && state.panel.goalId === g.id
-                ? g.personal ? acceptNumberPanel(g, nameOf(g.proposed_by)) : g.schedule ? acceptPanel(g, nameOf(g.proposed_by)) : ''
-                : ''}
-            </div>`;
-          })
-          .join('')}
+      <section class="card proposals ${incoming.length ? '' : 'quiet'}">
+        ${incoming.length ? `<h2 class="card-title">Needs your yes <span class="badge">${incoming.length}</span></h2>${ask}` : ''}
+        ${sent}
       </section>`;
   }
 
@@ -893,12 +1018,9 @@
       const cls = ['dot', c ? c.status : ran ? 'done' : '', got && !ran ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
       const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : got ? fmtAmount(got, h.unit) : day;
       const fill = got ? ` style="--pct:${Math.min(100, Math.round((got / h.daily_amount) * 100))}%"` : '';
-      // Your own today and yesterday are buttons: tap one to log it (or undo it).
-      if (isMe(h.user_id) && !h.archived_day && !offDay && day >= h.created_day && canLogDay(day)) {
-        const what = tracked(h) ? `Add ${UNIT_NAMES[h.unit] || h.unit}` : c?.status === 'done' ? 'Undo' : 'Log';
-        return `<button type="button" class="${cls} tap" data-action="tap-day" data-habit="${h.id}" data-day="${day}" aria-label="${esc(`${what} for ${dayName(day)}: ${title}`)}"${fill}></button>`;
-      }
-      return `<span class="${cls}" title="${esc(title)}"${fill}></span>`;
+      // Every circle opens that day: all your goals on it, editable for
+      // today and yesterday.
+      return `<button type="button" class="${cls}" data-action="open-day" data-day="${day}" aria-label="${esc(`${dayName(day)}: ${title}`)}"${fill}></button>`;
     }).join('');
 
     return { done, target, todayC, yesterdayC: byDay.get(addDays(d.today, -1)), outlook, dots };
@@ -984,9 +1106,9 @@
       </div>`;
   }
 
-  function missPanel(h) {
+  function missPanel(h, day) {
     return `
-      <form class="panel" data-form="miss" data-habit="${h.id}">
+      <form class="panel" data-form="miss" data-habit="${h.id}" ${day ? `data-day="${day}"` : ''}>
         <label for="miss-note">What got in the way? <span class="muted">Your partner sees this.</span>
           <textarea id="miss-note" name="note" rows="2" maxlength="280" required data-autofocus></textarea>
         </label>
@@ -1324,13 +1446,14 @@
 
   // The + button: adds one tap's worth, or opens the how-much box when the
   // goal asks each time (step 0). `where` says which box to open.
-  function plusButton(h, on, where, small = false) {
+  function plusButton(h, on, where, small = false, day = null) {
     const cls = `tick you plus ${small ? 'sm' : ''} ${on ? 'on' : ''}`;
+    const onDay = day ? ` data-day="${day}"` : '';
     if (!(h.step > 0)) {
-      return `<button class="${cls}" data-action="open-amount" data-where="${where}" data-habit="${h.id}" aria-label="Log ${esc(UNIT_NAMES[h.unit] || h.unit)} for ${esc(h.title)}">${uiIcon('plus')}</button>`;
+      return `<button class="${cls}" data-action="open-amount" data-where="${where}" data-habit="${h.id}"${onDay} aria-label="Log ${esc(UNIT_NAMES[h.unit] || h.unit)} for ${esc(h.title)}">${uiIcon('plus')}</button>`;
     }
     const label = `+${stepLabel(h.step)}`;
-    return `<button class="${cls} ${label.length > 3 ? 'long' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}" aria-label="Add ${esc(fmtAmount(h.step, h.unit))} to ${esc(h.title)}"><span>${esc(label)}</span></button>`;
+    return `<button class="${cls} ${label.length > 3 ? 'long' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}"${onDay} aria-label="Add ${esc(fmtAmount(h.step, h.unit))} to ${esc(h.title)}"><span>${esc(label)}</span></button>`;
   }
 
   // Type-an-amount box (and the tap-size box), opened from a card or the Today list.
@@ -1477,6 +1600,7 @@
   const alsoIn = (res) => (res.also?.length ? ` Also in ${listNames(res.also)}.` : '');
 
   async function addAmount(habitId, delta, reset, day) {
+    if (day === state.dash.today) day = undefined; // "on Wednesday" only for other days
     const h = state.dash.habits.find((x) => x.id === habitId);
     const on = day ? { day } : {};
     const res = await api('POST', '/api/amounts', reset ? { habit_id: habitId, reset: true, today: localToday(), ...on } : { habit_id: habitId, delta, today: localToday(), ...on });
@@ -1634,7 +1758,7 @@
       await addAmount(Number(f.dataset.habit), n, false, f.dataset.day);
     },
     async miss(f) {
-      const res = await api('POST', '/api/checkins', { habit_id: Number(f.dataset.habit), status: 'missed', note: f.note.value, today: localToday() });
+      const res = await api('POST', '/api/checkins', { habit_id: Number(f.dataset.habit), status: 'missed', note: f.note.value, today: localToday(), ...(f.dataset.day ? { day: f.dataset.day } : {}) });
       state.panel = null;
       toast('Logged. Owning it counts.' + alsoIn(res));
       await refresh();
@@ -1689,12 +1813,13 @@
 
   function closeSettings() {
     state.view = null;
+    state.panel = null;
     render();
     window.scrollTo(0, 0);
   }
   // The phone's back gesture leaves settings too.
   window.addEventListener('popstate', () => {
-    if (state.view === 'settings') closeSettings();
+    if (state.view) closeSettings();
   });
 
   // Undo a leave or delete, and take you back into that pact.
@@ -1750,29 +1875,23 @@
     // Back to zero for today (a weekly goal keeps its other days). Undo puts it back.
     async 'reset-amount'(el) {
       const h = state.dash.habits.find((x) => x.id === Number(el.dataset.habit));
-      const got = amountOn(h, state.dash.today);
-      if (got > 0) await addAmount(h.id, -got, true);
+      const got = amountOn(h, el.dataset.day || state.dash.today);
+      if (got > 0) await addAmount(h.id, -got, true, el.dataset.day);
     },
     async 'add-amount'(el) {
-      await addAmount(Number(el.dataset.habit), Number(el.dataset.delta));
+      await addAmount(Number(el.dataset.habit), Number(el.dataset.delta), false, el.dataset.day);
     },
-    // A day's circle: log it (or undo it), or for amount goals, add to that day.
-    async 'tap-day'(el) {
-      const h = state.dash.habits.find((x) => x.id === Number(el.dataset.habit));
-      const day = el.dataset.day;
-      if (tracked(h)) {
-        state.panel = { type: 'amount', habitId: h.id, where: 'card', day };
-        render();
-        return;
-      }
-      const c = state.dash.checkins.find((x) => x.habit_id === h.id && x.day === day);
-      if (c?.status !== 'done') return logDone(h.id, day);
-      await api('POST', '/api/checkins/undo', { habit_id: h.id, day, today: localToday() });
-      await refresh();
-      toast(`Undone for ${dayName(day)}.`, { label: 'Redo', run: () => logDone(h.id, day) });
+    'open-day'(el) {
+      const first = state.view !== 'day';
+      state.view = 'day';
+      state.day = el.dataset.day;
+      state.panel = null;
+      if (first) history.pushState({ view: 'day' }, '');
+      render();
+      window.scrollTo(0, 0);
     },
     'open-amount'(el) {
-      state.panel = { type: 'amount', habitId: Number(el.dataset.habit), where: el.dataset.where || 'card' };
+      state.panel = { type: 'amount', habitId: Number(el.dataset.habit), where: el.dataset.where || 'card', day: el.dataset.day };
       render();
     },
     'open-step'(el) {
@@ -1780,7 +1899,7 @@
       render();
     },
     'open-miss'(el) {
-      state.panel = { type: 'miss', habitId: Number(el.dataset.habit) };
+      state.panel = { type: 'miss', habitId: Number(el.dataset.habit), day: el.dataset.day };
       render();
     },
     async send(el) {
@@ -1937,7 +2056,7 @@
       window.scrollTo(0, 0);
     },
     'close-settings'() {
-      if (history.state?.view === 'settings') history.back(); // popstate renders
+      if (history.state?.view) history.back(); // popstate renders
       else closeSettings();
     },
     'edit-pacts'() {
@@ -2046,12 +2165,8 @@
     const el = ev.target.closest('[data-action]');
     if (!el || el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.disabled) return;
     if (el.dataset.action === 'log-done') haptic();
-    else if (el.dataset.action === 'tap-day') {
-      const h = state.dash?.habits.find((x) => x.id === Number(el.dataset.habit));
-      const logged = state.dash?.checkins.some((c) => c.habit_id === h?.id && c.day === el.dataset.day && c.status === 'done');
-      if (h && !tracked(h) && !logged) haptic();
-    }
-    else if (el.dataset.action === 'add-amount') amountHaptic(Number(el.dataset.habit), Number(el.dataset.delta));
+
+    else if (el.dataset.action === 'add-amount') amountHaptic(Number(el.dataset.habit), Number(el.dataset.delta), el.dataset.day);
     el.disabled = true; // no double taps
     guarded(() => actions[el.dataset.action](el)).finally(() => {
       if (el.isConnected) el.disabled = false;
@@ -2077,6 +2192,10 @@
     (ev) => {
       if (ev.target.matches && ev.target.matches('details.activity-drop')) {
         state.activityOpen = ev.target.open;
+        return;
+      }
+      if (ev.target.matches && ev.target.matches('details.req-mine')) {
+        state.reqOpen = ev.target.open;
         return;
       }
       if (!(ev.target.matches && ev.target.matches('details.add'))) return;
