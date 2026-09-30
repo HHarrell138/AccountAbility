@@ -814,3 +814,35 @@ test('invite links: who invited you, and dead links', async (t) => {
   await cash('POST', '/api/partnerships/join', { code: pact.invite_code });
   assert.equal((await stranger('GET', `/api/invite?code=${pact.invite_code}`)).data.full, true);
 });
+
+test('rename a pact: only for you', async (t) => {
+  const pushes = [];
+  const server = createApp({ sendPush: async (sub, msg) => (pushes.push({ to: sub.endpoint, ...msg }), 201) });
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', email: 'king@example.com', password: 'password123' });
+  const pact = (await hank('POST', '/api/partnerships', { name: 'Hank & King', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: pact.invite_code });
+  await hank('PATCH', `/api/partnerships/${pact.id}`, { name: 'King' });
+  await king('PATCH', `/api/partnerships/${pact.id}`, { name: 'Hank' });
+  const nameFor = async (who) => [(await who('GET', '/api/me')).data.partnerships[0].name, (await who('GET', `/api/partnerships/${pact.id}/dashboard?today=${today}`)).data.partnership.name];
+  assert.deepEqual(await nameFor(hank), ['King', 'King']);
+  assert.deepEqual(await nameFor(king), ['Hank', 'Hank']);
+
+  // King's phone says "Hank", his name for it.
+  await king('POST', '/api/push/subscribe', { subscription: { endpoint: 'https://fcm.googleapis.com/send/king', keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } } });
+  const h = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Read', target_per_week: 3, today })).data.habit;
+  await hank('POST', '/api/checkins', { habit_id: h.id, status: 'done', today });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Hank did Read', 'Hank']]);
+
+  // Blank goes back to the name it started with; too long is refused.
+  await hank('PATCH', `/api/partnerships/${pact.id}`, { name: '  ' });
+  assert.deepEqual(await nameFor(hank), ['Hank & King', 'Hank & King']);
+  assert.equal((await hank('PATCH', `/api/partnerships/${pact.id}`, { name: 'x'.repeat(61) })).status, 400);
+});

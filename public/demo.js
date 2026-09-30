@@ -265,10 +265,13 @@
     }],
     ['PATCH', /^\/api\/partnerships\/(\d+)$/, (b, q, m) => {
       const p = requirePact(m[1]);
-      const stakes = text(b.stakes, 'Stakes', { max: 200, required: false });
-      if (stakes !== p.stakes) {
-        p.stakes = stakes;
-        addEvent({ actor_id: ME, kind: 'stakes', message: stakes });
+      if (b.name !== undefined) p.name = text(b.name, 'Name', { max: 60, required: false }) || 'Hank & King';
+      if (b.stakes !== undefined) {
+        const stakes = text(b.stakes, 'Stakes', { max: 200, required: false });
+        if (stakes !== p.stakes) {
+          p.stakes = stakes;
+          addEvent({ actor_id: ME, kind: 'stakes', message: stakes });
+        }
       }
       return { ok: true };
     }],

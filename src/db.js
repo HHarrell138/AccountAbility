@@ -187,6 +187,10 @@ function migrate(db) {
   // Where the goal sits in its owner's list. 0 = never reordered: it goes after
   // the ordered ones, oldest first.
   if (!habitCols.includes('position')) db.exec('ALTER TABLE habits ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
+  // Your own name for a pact ("King"), which only you see. NULL = the name
+  // it was started with.
+  const memberCols = db.prepare('PRAGMA table_info(memberships)').all().map((c) => c.name);
+  if (!memberCols.includes('nickname')) db.exec('ALTER TABLE memberships ADD COLUMN nickname TEXT');
   const goalCols = db.prepare('PRAGMA table_info(goals)').all().map((c) => c.name);
   if (!goalCols.includes('schedule')) db.exec("ALTER TABLE goals ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
   if (!goalCols.includes('personal')) db.exec('ALTER TABLE goals ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');

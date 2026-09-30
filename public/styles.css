@@ -769,3 +769,9 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 
 .invite-banner { margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; background: var(--you-soft); border: 1px solid var(--accent-line); font-size: 0.95rem; }
 .invite-code { text-align: center; margin: 10px 0 0; }
+
+.rename-link { justify-self: start; padding: 2px 0 0; font-size: 0.85rem; }
+.pact-rename { grid-column: 2 / -1; margin: 0; font-size: 0.85rem; }
+.pact-rename input { margin-top: 6px; }
+.renaming .pact-confirm { display: flex; gap: 8px; grid-column: 2 / -1; }
+.renaming .pact-confirm .btn.primary { background: var(--you); color: var(--you-ink); border: 0; }

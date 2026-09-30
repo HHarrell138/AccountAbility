@@ -236,7 +236,10 @@ function createApp({
     }
   }
 
-  const pactName = (id) => q('SELECT name FROM partnerships WHERE id = ?').get(id).name;
+  // A pact's name as one person sees it: their own name for it, if they set
+  // one, or the name it was started with.
+  const pactName = (id, userId) =>
+    q('SELECT COALESCE(m.nickname, p.name) AS name FROM partnerships p LEFT JOIN memberships m ON m.partnership_id = p.id AND m.user_id = ? WHERE p.id = ?').get(userId, id).name;
 
   function memberIds(partnershipId) {
     return q('SELECT user_id FROM memberships WHERE partnership_id = ? ORDER BY joined_at, user_id')
@@ -290,27 +293,32 @@ function createApp({
   // the rest always go through.
   function notifyEvent(eventId) {
     const e = q(
-      `SELECT e.*, a.name AS actor, t.name AS target, h.title AS habit, p.name AS pact FROM events e
+      `SELECT e.*, a.name AS actor, t.name AS target, h.title AS habit FROM events e
        JOIN users a ON a.id = e.actor_id LEFT JOIN users t ON t.id = e.target_id
-       LEFT JOIN habits h ON h.id = e.habit_id JOIN partnerships p ON p.id = e.partnership_id WHERE e.id = ?`
+       LEFT JOIN habits h ON h.id = e.habit_id WHERE e.id = ?`
     ).get(eventId);
     if (!e) return; // rolled back, or replaced already
     const others = memberIds(e.partnership_id).filter((id) => id !== e.actor_id);
     const optedIn = (ids) => ids.filter((id) => q('SELECT notify_partner FROM users WHERE id = ?').get(id)?.notify_partner);
     const late = e.kind.endsWith('_late') && e.day ? ` (for ${new Date(`${e.day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })})` : '';
-    const say = {
-      nudge: [[e.target_id], `${e.actor} nudged you`, e.message || (e.habit ? `About ${e.habit}` : e.pact)],
-      cheer: [[e.target_id], `${e.actor} cheered you on`, e.message || (e.habit ? `For ${e.habit}` : e.pact)],
-      done: [optedIn(others), `${e.actor} did ${e.habit}${late}`, e.pact],
-      missed: [optedIn(others), `${e.actor} missed ${e.habit}${late}`, e.message ? `“${e.message}”` : e.pact],
+    // The pact's name is each person's own name for it.
+    const say = (pact) => ({
+      nudge: [[e.target_id], `${e.actor} nudged you`, e.message || (e.habit ? `About ${e.habit}` : pact)],
+      cheer: [[e.target_id], `${e.actor} cheered you on`, e.message || (e.habit ? `For ${e.habit}` : pact)],
+      done: [optedIn(others), `${e.actor} did ${e.habit}${late}`, pact],
+      missed: [optedIn(others), `${e.actor} missed ${e.habit}${late}`, e.message ? `“${e.message}”` : pact],
       goal_proposed: [others, `${e.actor} proposed a shared goal`, `${e.message}. Open the app to agree.`],
       goal_accepted: [others, `${e.actor} agreed to ${e.message}`, 'You’re both on it.'],
-      goal_ended: [others, `${e.actor} ended ${e.habit}`, e.pact],
-      joined: [others, `${e.actor} joined ${e.pact}`, 'Agree on your first shared goal.'],
-      left: [others, `${e.actor} left ${e.pact}`, 'Your shared goals there ended.'],
-    }[e.kind.replace('_late', '')];
-    if (!say || !say[0].length) return;
-    notify(say[0], { title: say[1], body: say[2], tag: `${e.partnership_id}-${e.kind}-${e.habit_id || ''}`, url: '/' });
+      goal_ended: [others, `${e.actor} ended ${e.habit}`, pact],
+      joined: [others, `${e.actor} joined ${pact}`, 'Agree on your first shared goal.'],
+      left: [others, `${e.actor} left ${pact}`, 'Your shared goals there ended.'],
+    })[e.kind.replace('_late', '')];
+    const who = say('')?.[0];
+    if (!who || !who.length) return;
+    for (const uid of who) {
+      const [, title, body] = say(pactName(e.partnership_id, uid));
+      notify([uid], { title, body, tag: `${e.partnership_id}-${e.kind}-${e.habit_id || ''}`, url: '/' });
+    }
   }
 
   // Your goals still open today (in your time zone), one per goal even when
@@ -578,7 +586,7 @@ function createApp({
 
   route('GET', '/api/me', ({ user }) => {
     const partnerships = q(
-      `SELECT p.id, p.name, (SELECT COUNT(*) FROM memberships x WHERE x.partnership_id = p.id) AS member_count, p.max_members
+      `SELECT p.id, COALESCE(m.nickname, p.name) AS name, (SELECT COUNT(*) FROM memberships x WHERE x.partnership_id = p.id) AS member_count, p.max_members
        FROM partnerships p JOIN memberships m ON m.partnership_id = p.id
        WHERE m.user_id = ? ORDER BY m.joined_at`
     ).all(user.id);
@@ -708,8 +716,11 @@ function createApp({
 
   route('PATCH', '/api/partnerships/:id', ({ user, params, body }) => {
     const p = requireMember(params.id, user.id);
+    // Renaming is just for you: your partner keeps whatever they call it.
+    // Blank goes back to the name it was started with.
     if (body.name !== undefined) {
-      q('UPDATE partnerships SET name = ? WHERE id = ?').run(str(body.name, 'Name', { max: 60 }), p.id);
+      const nickname = str(body.name, 'Name', { max: 60, required: false }) || null;
+      q('UPDATE memberships SET nickname = ? WHERE partnership_id = ? AND user_id = ?').run(nickname, p.id, user.id);
     }
     if (body.stakes !== undefined) {
       const stakes = str(body.stakes, 'Stakes', { max: 200, required: false });
@@ -766,7 +777,7 @@ function createApp({
     return {
       partnership: {
         id: p.id,
-        name: p.name,
+        name: pactName(p.id, user.id),
         stakes: p.stakes,
         invite_code: p.invite_code,
         max_members: p.max_members,
@@ -777,7 +788,7 @@ function createApp({
       members,
       habits: habits
         .filter((h) => !h.archived_day || h.archived_day > thisWeek)
-        .map((h) => (h.user_id === user.id && !h.archived_day ? { ...h, links: linkedHabits(h).map((x) => pactName(x.partnership_id)) } : h)),
+        .map((h) => (h.user_id === user.id && !h.archived_day ? { ...h, links: linkedHabits(h).map((x) => pactName(x.partnership_id, user.id)) } : h)),
       checkins: checkins.filter((c) => c.day >= recentFrom),
       amounts: q(
         `SELECT a.habit_id, a.day, a.amount FROM amounts a JOIN habits h ON h.id = a.habit_id
@@ -1044,7 +1055,7 @@ function createApp({
         const c = q('SELECT status FROM checkins WHERE habit_id = ? AND day = ?').get(x.id, day);
         if (status === 'done' ? c?.status === 'done' : c) continue;
         writeCheckin(x, day, status, note, late);
-        also.push(pactName(x.partnership_id));
+        also.push(pactName(x.partnership_id, x.user_id));
       }
       return { checkin, also };
     });
@@ -1097,7 +1108,7 @@ function createApp({
       for (const x of linkedHabits(h)) {
         if (day < x.created_day) continue;
         applyAmount(x, day, change(x), late);
-        also.push(pactName(x.partnership_id));
+        also.push(pactName(x.partnership_id, x.user_id));
       }
       return { ...result, also };
     });

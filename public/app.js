@@ -448,9 +448,24 @@
         // Edit: leave a pact someone else is in, delete one that's just you.
         const alone = !others.length;
         const confirming = state.pactConfirm === p.id;
+        // Your own name for it; your partner keeps theirs.
+        if (state.pactRename === p.id) {
+          return `
+          <form class="pact-row editing renaming" data-form="rename-pact" data-pid="${p.id}">
+            ${avs}
+            <label class="pact-rename">Your name for this pact <span class="muted">(only you see it)</span>
+              <input name="name" maxlength="60" value="${esc(p.name)}" placeholder="${esc(others.map((m) => m.name).join(' & ') || 'Name it')}" data-autofocus>
+            </label>
+            <div class="pact-confirm row">
+              <button class="btn small primary" type="submit">Save</button>
+              <button class="btn small" type="button" data-action="cancel-rename">Cancel</button>
+            </div>
+          </form>`;
+        }
         return `
           <div class="pact-row editing ${confirming ? 'confirming' : ''}">
-            ${avs}${text}
+            ${avs}<span class="pact-text"><strong>${esc(p.name)}</strong><span class="small muted">${who}</span>
+              ${confirming ? '' : `<button class="link rename-link" data-action="rename-pact" data-pid="${p.id}">Rename</button>`}</span>
             ${confirming ? '' : `<button class="btn small danger" data-action="confirm-leave" data-pid="${p.id}">${alone ? 'Delete' : 'Leave'}</button>`}
             ${confirming
               ? `<div class="pact-confirm">
@@ -1705,6 +1720,16 @@
       f.reset();
       toast('Password changed. Other devices are logged out.');
     },
+    async 'rename-pact'(f) {
+      const pid = Number(f.dataset.pid);
+      await api('PATCH', `/api/partnerships/${pid}`, { name: f.name.value });
+      state.pactRename = null;
+      const me = await api('GET', '/api/me');
+      state.partnerships = me.partnerships;
+      if (pid === state.pid) await loadDash();
+      render();
+      toast('Renamed. Only you see this name.');
+    },
     async 'create-pact'(f) {
       const { partnership } = await api('POST', '/api/partnerships', { name: f.name.value, today: localToday() });
       await afterJoinOrCreate(partnership.id);
@@ -2100,7 +2125,17 @@
     },
     'edit-pacts'() {
       state.pactsEdit = !state.pactsEdit;
+      state.pactRename = null;
       state.pactConfirm = null;
+      render();
+    },
+    'rename-pact'(el) {
+      state.pactRename = Number(el.dataset.pid);
+      state.pactConfirm = null;
+      render();
+    },
+    'cancel-rename'() {
+      state.pactRename = null;
       render();
     },
     'confirm-leave'(el) {
