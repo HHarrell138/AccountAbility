@@ -1962,10 +1962,54 @@
     },
   };
 
+  // ---------- haptics ----------
+  //
+  // A buzz when you finish something: checking off a goal, logging the amount
+  // that hits today's target, and every tap on a weekly-miles goal. Android
+  // vibrates. iPhone has no vibrate for web apps, but toggling a switch-style
+  // checkbox gives a haptic tick (iOS 18+), so we flip a hidden one. Either
+  // way it has to happen during the tap itself, so we work out whether the
+  // tap finishes the goal before the server answers.
+  function haptic(kind) {
+    try {
+      if (navigator.vibrate) {
+        navigator.vibrate(kind === 'goal' ? [35, 70, 35] : 20);
+        return;
+      }
+      const tick = () => {
+        const label = document.createElement('label');
+        label.setAttribute('aria-hidden', 'true');
+        label.style.cssText = 'position:fixed;left:-100px;top:0;opacity:0;pointer-events:none';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.setAttribute('switch', '');
+        label.append(input);
+        document.body.append(label);
+        label.click();
+        label.remove();
+      };
+      tick();
+      if (kind === 'goal') setTimeout(tick, 110); // a double tap: goal done
+    } catch {
+      // No haptics here; nothing else changes.
+    }
+  }
+
+  // Would adding `delta` to this goal finish it? Weekly miles tick on every tap.
+  function amountHaptic(habitId, delta) {
+    const h = state.dash?.habits.find((x) => x.id === habitId);
+    if (!h || !(delta > 0)) return;
+    const have = weekly(h) ? weekTotal(h) : amountOn(h, state.dash.today);
+    const target = weekly(h) ? weekTarget(h) : h.daily_amount;
+    if (have < target && have + delta >= target) haptic('goal');
+    else if (weekly(h)) haptic('tap');
+  }
+
   app.addEventListener('submit', (ev) => {
     const f = ev.target.closest('form[data-form]');
     if (!f) return;
     ev.preventDefault();
+    if (f.dataset.form === 'amount') amountHaptic(Number(f.dataset.habit), Number(f.amount.value));
     const btn = f.querySelector('[type=submit]');
     if (btn) btn.disabled = true;
     guarded(() => forms[f.dataset.form](f)).finally(() => {
@@ -1976,6 +2020,8 @@
   app.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-action]');
     if (!el || el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.disabled) return;
+    if (el.dataset.action === 'log-done') haptic('goal');
+    else if (el.dataset.action === 'add-amount') amountHaptic(Number(el.dataset.habit), Number(el.dataset.delta));
     el.disabled = true; // no double taps
     guarded(() => actions[el.dataset.action](el)).finally(() => {
       if (el.isConnected) el.disabled = false;
