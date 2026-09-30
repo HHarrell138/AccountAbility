@@ -107,10 +107,12 @@ function scoreWeek(memberIds, habits, checkins, start) {
 
 // ---------- the pair streak ----------
 //
-// Each finished week is scored as one combined bar: each partner's shared
-// goals hit / shared goals (a goal is hit when its weekly target is met),
-// averaged, so each of you fills half. You at 100% and your partner at 0% is
-// 50%; 100% takes both of you hitting everything.
+// Each week is scored as one combined bar. Every shared goal earns credit as
+// you go: Work out 3 of 4 days is 75% of that goal, and a weekly run counts
+// the miles logged so far (never more than 100% per goal). Your share is the
+// average across your goals, and the pair's bar averages the two of you, so
+// each fills half: you at 100% and your partner at 0% is 50%, and 100% takes
+// both of you hitting everything.
 //
 //   100%    -> green; three 100% weeks in a row -> gold (and it stays gold)
 //   70-99%  -> streak lives but drops a level: gold -> green, green -> blue
@@ -123,14 +125,26 @@ function scoreWeek(memberIds, habits, checkins, start) {
 const STREAK_MIN = 0.7;
 const GOLD_RUN = 3;
 
-function weekPercent(memberIds, habits, checkins, start) {
+function weekPercent(memberIds, habits, checkins, start, amounts = []) {
   const s = scoreWeek(memberIds, habits, checkins, start);
+  const end = addDays(start, 6);
+  const byId = new Map(habits.map((h) => [h.id, h]));
+  // How far along one goal is this week, from 0 to 1.
+  const progress = (x) => {
+    if (x.met) return 1;
+    const h = byId.get(x.habit_id);
+    if (h.amount_period === 'week' && h.daily_amount > 0) {
+      const total = amounts.filter((a) => a.habit_id === h.id && a.day >= start && a.day <= end).reduce((t, a) => t + a.amount, 0);
+      return Math.min(1, total / weeklyAmountTarget(h, start));
+    }
+    return Math.min(1, x.done / x.target);
+  };
   const members = {};
   for (const id of memberIds) {
     const hs = s.members[id].habits;
     const target = hs.length;
     const done = hs.filter((h) => h.met).length;
-    members[id] = { done, target, pct: target ? done / target : null };
+    members[id] = { done, target, pct: target ? hs.reduce((t, x) => t + progress(x), 0) / target : null };
   }
   const pcts = memberIds.map((id) => members[id].pct);
   const pct = pcts.length && pcts.every((p) => p !== null) ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
@@ -146,7 +160,7 @@ function nextTier(tier, fullRun, pct) {
   return { tier: tier === 'gold' ? 'green' : 'blue', fullRun: 0 };
 }
 
-function pairStreak(memberIds, habits, checkins, today, sinceDay) {
+function pairStreak(memberIds, habits, checkins, today, sinceDay, amounts = []) {
   const current = weekStart(today);
   let w = weekStart(sinceDay);
   if (daysBetween(w, current) > 7 * 520) w = addDays(current, -7 * 520);
@@ -155,12 +169,12 @@ function pairStreak(memberIds, habits, checkins, today, sinceDay) {
   let weeks = 0;
   const history = [];
   for (; w < current; w = addDays(w, 7)) {
-    const { pct } = weekPercent(memberIds, habits, checkins, w);
+    const { pct } = weekPercent(memberIds, habits, checkins, w, amounts);
     ({ tier, fullRun } = nextTier(tier, fullRun, pct));
     weeks = tier ? weeks + 1 : 0;
     history.push({ start: w, pct, tier });
   }
-  const thisWeek = weekPercent(memberIds, habits, checkins, current);
+  const thisWeek = weekPercent(memberIds, habits, checkins, current, amounts);
   let shownTier = tier;
   let shownWeeks = weeks;
   let shownRun = fullRun;

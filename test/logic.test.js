@@ -76,9 +76,9 @@ test('streak colors: gold after 3 perfect weeks, drop a level at 70-99%, break u
   assert.deepEqual(walk([0.69, 0.7]), [null, 'blue']); // 70% restarts at blue
 });
 
-test('the pair is scored at the lower of the two weeks, by goals hit', () => {
-  // You: 1 of 2 goals hit (5/6 days misses its target). Partner: 1 of 1.
-  // Combined: each fills half the bar, so 25% + 50% = 75%.
+test('one combined bar, with credit for every day logged', () => {
+  // You: 5 of 6 days on one goal, 4 of 4 on the other. Partner: 7 of 7.
+  // Your share: (5/6 + 1) / 2. The bar averages the two of you.
   const habits = [
     habit({ id: 1, user_id: 1, target_per_week: 6 }),
     habit({ id: 2, user_id: 1, target_per_week: 4 }),
@@ -92,9 +92,20 @@ test('the pair is scored at the lower of the two weeks, by goals hit', () => {
     ...days(7).map((d) => done(3, d)),
   ];
   const w = L.weekPercent([1, 2], habits, checkins, week);
-  assert.deepEqual([w.members[1].done, w.members[1].target, w.members[1].pct], [1, 2, 0.5]);
+  assert.deepEqual([w.members[1].done, w.members[1].target, w.members[1].pct], [1, 2, (5 / 6 + 1) / 2]); // 1 of 2 fully hit, but 5/6 still counts
   assert.equal(w.members[2].pct, 1);
-  assert.equal(w.pct, 0.75);
+  assert.equal(w.pct, ((5 / 6 + 1) / 2 + 1) / 2);
+
+  // The bar moves with each day: after 2 workouts of 4, that goal is half done.
+  const midweek = L.weekPercent([1, 2], [habit({ id: 2, user_id: 1, target_per_week: 4 }), habit({ id: 3, user_id: 2, target_per_week: 4 })], days(2).map((d) => done(2, d)), week);
+  assert.equal(midweek.pct, 0.25);
+
+  // A weekly run counts miles as they're logged.
+  const run = habit({ id: 4, user_id: 1, target_per_week: 1, daily_amount: 20, amount_period: 'week' });
+  const rest = habit({ id: 5, user_id: 2, target_per_week: 1 });
+  const miles = L.weekPercent([1, 2], [run, rest], [done(5, week)], week, [{ habit_id: 4, day: week, amount: 5 }, { habit_id: 4, day: L.addDays(week, 2), amount: 10 }]);
+  assert.equal(miles.members[1].pct, 0.75);
+  assert.equal(miles.pct, 0.875);
 
   // One of you doing everything and the other nothing is half the bar, not a streak.
   const solo = L.weekPercent([1, 2], habits, days(7).map((d) => done(3, d)), week);

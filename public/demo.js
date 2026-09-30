@@ -301,7 +301,7 @@
         week: L.scoreWeek(ids, db.habits, db.checkins, thisWeek),
         sharedWeek: L.scoreWeek(ids, shared, db.checkins, thisWeek),
         sharedLastWeek: L.scoreWeek(ids, shared, db.checkins, recentFrom),
-        streak: ids.length >= 2 ? L.pairStreak(ids, shared, db.checkins, today, p.created_day) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
+        streak: ids.length >= 2 ? L.pairStreak(ids, shared, db.checkins, today, p.created_day, db.amounts) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
         events,
         last_seen_event_id: lastSeen,
       };

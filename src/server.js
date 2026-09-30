@@ -477,7 +477,11 @@ function createApp({ dbFile = ':memory:' } = {}) {
       // Shared goals are what you're compared on, and all the pair streak counts.
       sharedWeek: L.scoreWeek(ids, shared, checkins, thisWeek),
       sharedLastWeek: L.scoreWeek(ids, shared, checkins, recentFrom),
-      streak: ids.length >= 2 ? L.pairStreak(ids, shared, checkins, today, p.created_day) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
+      // Weekly amount goals (miles run) earn streak credit as the miles go in.
+      streak: ids.length >= 2 ? L.pairStreak(ids, shared, checkins, today, p.created_day, q(
+        `SELECT a.habit_id, a.day, a.amount FROM amounts a JOIN habits h ON h.id = a.habit_id
+         WHERE h.partnership_id = ? AND h.goal_id IS NOT NULL AND h.amount_period = 'week'`
+      ).all(p.id)) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
       events,
       last_seen_event_id,
     };
