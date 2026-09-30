@@ -145,14 +145,12 @@ test('weekRecap: each goal combined, misses with reasons', () => {
   assert.equal(r.pct, (1 + (0.75 + 0.3) / 2) / 2);
 });
 
-test('canLog: any day this week, plus yesterday; never the future or a closed week', () => {
-  const thu = '2026-10-01'; // week of Mon 9/28
+test('canLog: today and yesterday only', () => {
+  const thu = '2026-10-01';
   assert.ok(L.canLog(thu, thu));
-  assert.ok(L.canLog('2026-09-28', thu)); // Monday, same week
-  assert.ok(!L.canLog('2026-09-27', thu)); // last Sunday: closed
+  assert.ok(L.canLog('2026-09-30', thu)); // yesterday
+  assert.ok(!L.canLog('2026-09-29', thu)); // two days ago
   assert.ok(!L.canLog('2026-10-02', thu)); // tomorrow
-  const mon = '2026-10-05';
-  assert.ok(L.canLog('2026-10-04', mon)); // Monday can still fix Sunday
-  assert.ok(!L.canLog('2026-10-03', mon));
-  assert.ok(!L.canLog('junk', mon));
+  assert.ok(L.canLog('2026-10-04', '2026-10-05')); // Monday can still fix Sunday
+  assert.ok(!L.canLog('junk', thu));
 });

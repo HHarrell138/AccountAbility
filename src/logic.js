@@ -194,12 +194,10 @@ function pairStreak(memberIds, habits, checkins, today, sinceDay, amounts = []) 
   };
 }
 
-// Which days you can still log: today, any earlier day this week, and
-// yesterday (so Monday can fix Sunday). Anything but today is marked late.
-// Earlier weeks are closed; their streak is already scored.
+// Which days you can log: today, and yesterday (marked late). Nothing older,
+// so nobody fills in a missed week on Sunday night.
 function canLog(day, today) {
-  if (!isValidDay(day) || day > today) return false;
-  return day >= weekStart(today) || day === addDays(today, -1);
+  return isValidDay(day) && (day === today || day === addDays(today, -1));
 }
 
 // ---------- the weekly recap ----------

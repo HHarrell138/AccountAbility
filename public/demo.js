@@ -408,7 +408,7 @@
       if (h.archived_day) fail(400, 'That habit is archived');
       const today = b.today;
       const day = b.day || today;
-      if (!L.canLog(day, today)) fail(400, 'You can only log days this week');
+      if (!L.canLog(day, today)) fail(400, 'You can only log today or yesterday');
       if (day < h.created_day) fail(400, 'That habit did not exist yet');
       const note = text(b.note, 'Note', { max: 280, required: false });
       if (b.status === 'missed' && !note) fail(400, 'Own the miss: say what got in the way');

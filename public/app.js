@@ -893,7 +893,7 @@
       const cls = ['dot', c ? c.status : ran ? 'done' : '', got && !ran ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
       const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : got ? fmtAmount(got, h.unit) : day;
       const fill = got ? ` style="--pct:${Math.min(100, Math.round((got / h.daily_amount) * 100))}%"` : '';
-      // Your own days this week are buttons: tap one to log it (or undo it).
+      // Your own today and yesterday are buttons: tap one to log it (or undo it).
       if (isMe(h.user_id) && !h.archived_day && !offDay && day >= h.created_day && canLogDay(day)) {
         const what = tracked(h) ? `Add ${UNIT_NAMES[h.unit] || h.unit}` : c?.status === 'done' ? 'Undo' : 'Log';
         return `<button type="button" class="${cls} tap" data-action="tap-day" data-habit="${h.id}" data-day="${day}" aria-label="${esc(`${what} for ${dayName(day)}: ${title}`)}"${fill}></button>`;
@@ -1296,11 +1296,10 @@
   const typed = (h) => h.icon === 'protein' || h.icon === 'calories';
   const weekly = (h) => tracked(h) && h.amount_period === 'week';
 
-  // Days you can still log: today, earlier this week, and yesterday (so
-  // Monday can fix Sunday). Mirrors canLog in src/logic.js.
+  // Days you can log: today, and yesterday (marked late). Mirrors canLog in
+  // src/logic.js.
   function canLogDay(day) {
-    const today = state.dash.today;
-    return day <= today && (day >= weekStart(today) || day === addDays(today, -1));
+    return day === state.dash.today || day === addDays(state.dash.today, -1);
   }
   const dayName = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' });
 
