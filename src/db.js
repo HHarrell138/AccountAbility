@@ -154,6 +154,11 @@ CREATE INDEX IF NOT EXISTS events_by_partnership ON events(partnership_id, id);
 
 // Additive migrations for databases created by older versions.
 function migrate(db) {
+  // Sign up with email: your email is how you log in, and your name (Jake,
+  // Josh) doesn't have to be unique. Older accounts keep their username.
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!userCols.includes('email')) db.exec('ALTER TABLE users ADD COLUMN email TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email) WHERE email IS NOT NULL');
   const habitCols = db.prepare('PRAGMA table_info(habits)').all().map((c) => c.name);
   if (!habitCols.includes('icon')) db.exec("ALTER TABLE habits ADD COLUMN icon TEXT NOT NULL DEFAULT 'check'");
   if (!habitCols.includes('goal_id')) db.exec('ALTER TABLE habits ADD COLUMN goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE');

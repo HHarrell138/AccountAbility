@@ -39,7 +39,7 @@ On a phone, open the URL and use **Add to Home Screen**. It installs like an app
 
 `npm run build:preview` bundles the app into one file, `dist/preview.html`, with an in-browser stand-in for the server (`public/demo.js`) and a simulated partner who reacts to check-ins and nudges. Open it on any phone to click around. It uses the same scoring code as the real server (`src/logic.js`).
 
-Environment variables: `PORT` (default 3000) and `DB_FILE` (SQLite path, or `:memory:`).
+Environment variables: `PORT` (default 3000), `DB_FILE` (SQLite path, or `:memory:`), and for password reset emails `SMTP_USER` / `SMTP_PASS` (a Gmail address and a Google app password; see `src/mail.js`). Without email, a partner can make a reset code from Account.
 
 ### Deploy (Render, about $7.25/mo)
 

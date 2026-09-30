@@ -6,6 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { openDb } = require('./db');
 const L = require('./logic');
+const mail = require('./mail');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SESSION_COOKIE = 'aa_session';
@@ -71,6 +72,12 @@ function clientToday(value) {
 
 // ---------- auth ----------
 
+function parseEmail(value) {
+  const email = String(value ?? '').trim().toLowerCase();
+  if (email.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Enter a valid email');
+  return email;
+}
+
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
   return { salt, hash };
@@ -103,7 +110,8 @@ function inviteCode() {
 
 // ---------- app ----------
 
-function createApp({ dbFile = ':memory:' } = {}) {
+// sendMail is swappable for tests; by default it's SMTP from the environment.
+function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail.sendMail(m) : null } = {}) {
   const db = openDb(dbFile);
   const q = (sql) => db.prepare(sql);
 
@@ -150,7 +158,7 @@ function createApp({ dbFile = ':memory:' } = {}) {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     if (!token) return null;
     const row = q(
-      `SELECT u.id, u.name, u.username FROM sessions s JOIN users u ON u.id = s.user_id
+      `SELECT u.id, u.name, u.username, u.email FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > ?`
     ).get(token, Date.now());
     return row || null;
@@ -236,42 +244,67 @@ function createApp({ dbFile = ':memory:' } = {}) {
     routes.push({ method, re, keys, handler, auth });
   };
 
+  // Sign up with your first name, email and a password. The name doesn't have
+  // to be unique; the email is what you log in with. (Signing up with a
+  // username still works, for older clients.)
   route('POST', '/api/signup', ({ body, req, res }) => {
     const name = str(body.name, 'Name', { max: 40 });
-    const username = str(body.username, 'Username', { min: 3, max: 30 }).toLowerCase();
-    if (!/^[a-z0-9_.]+$/.test(username)) fail(400, 'Username can only use letters, numbers, _ and .');
+    const email = body.email === undefined ? null : parseEmail(body.email);
+    let username;
+    if (email) {
+      if (q('SELECT 1 FROM users WHERE email = ? OR username = ?').get(email, email)) fail(409, 'There’s already an account with that email. Log in instead.');
+      username = email; // internal only; never shown
+    } else {
+      username = str(body.username, 'Username', { min: 3, max: 30 }).toLowerCase();
+      if (!/^[a-z0-9_.]+$/.test(username)) fail(400, 'Username can only use letters, numbers, _ and .');
+      if (q('SELECT 1 FROM users WHERE username = ?').get(username)) fail(409, 'That username is taken');
+    }
     const password = str(body.password, 'Password', { min: 8, max: 200 });
-    if (q('SELECT 1 FROM users WHERE username = ?').get(username)) fail(409, 'That username is taken');
     const { salt, hash } = hashPassword(password);
-    const { id } = q('INSERT INTO users (name, username, pass_salt, pass_hash) VALUES (?, ?, ?, ?) RETURNING id').get(name, username, salt, hash);
+    const { id } = q('INSERT INTO users (name, username, email, pass_salt, pass_hash) VALUES (?, ?, ?, ?, ?) RETURNING id').get(name, username, email, salt, hash);
     startSession(req, res, id);
-    return { user: { id, name, username } };
+    return { user: { id, name, username, email } };
   }, { auth: false });
 
+  // Log in (or reset) with your email or, for older accounts, your username.
+  const findLogin = (value) => {
+    const v = String(value || '').trim().toLowerCase();
+    return q('SELECT * FROM users WHERE email = ? OR username = ?').get(v, v);
+  };
+
+  // Add or change your email, so you can log in with it.
+  route('PATCH', '/api/me', ({ user, body }) => {
+    const email = parseEmail(body.email);
+    const taken = q('SELECT id FROM users WHERE (email = ? OR username = ?) AND id != ?').get(email, email, user.id);
+    if (taken) fail(409, 'That email is already on another account');
+    q('UPDATE users SET email = ? WHERE id = ?').run(email, user.id);
+    return { user: { ...user, email } };
+  });
+
   route('POST', '/api/login', ({ body, req, res }) => {
-    const username = str(body.username, 'Username').toLowerCase();
+    const login = str(body.login ?? body.email ?? body.username, 'Email').toLowerCase();
     const password = str(body.password, 'Password');
-    const key = loginKey(req, username);
+    const key = loginKey(req, login);
     if (loginBlocked(key)) fail(429, 'Too many tries. Wait 15 minutes and try again.');
-    const u = q('SELECT * FROM users WHERE username = ?').get(username);
+    const u = findLogin(login);
     if (!u || !verifyPassword(password, u.pass_salt, u.pass_hash)) {
       recordLoginFailure(key);
-      fail(401, 'Wrong username or password');
+      fail(401, 'Wrong email or password');
     }
     loginFailures.delete(key);
     startSession(req, res, u.id);
-    return { user: { id: u.id, name: u.name, username: u.username } };
+    return { user: { id: u.id, name: u.name, username: u.username, email: u.email } };
   }, { auth: false });
 
   // Forgot your password: a partner makes you a one-time code (below), and
   // you trade it for a new password here. It logs you out everywhere else.
   route('POST', '/api/reset-password', ({ body, req, res }) => {
-    const username = str(body.username, 'Username').toLowerCase();
+    const username = str(body.login ?? body.email ?? body.username, 'Email').toLowerCase();
     const code = str(body.code, 'Reset code', { max: 20 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
     const password = str(body.password, 'New password', { min: 8, max: 200 });
     const key = loginKey(req, `reset:${username}`);
     if (loginBlocked(key)) fail(429, 'Too many tries. Wait 15 minutes and try again.');
-    const u = q('SELECT * FROM users WHERE username = ?').get(username);
+    const u = findLogin(username);
     const hash = crypto.createHash('sha256').update(code).digest('hex');
     const r = u && q('SELECT * FROM reset_codes WHERE user_id = ? AND used = 0 AND expires_at > ? ORDER BY id DESC').get(u.id, Date.now());
     if (!r || !crypto.timingSafeEqual(Buffer.from(r.code_hash, 'hex'), Buffer.from(hash, 'hex'))) {
@@ -287,6 +320,40 @@ function createApp({ dbFile = ':memory:' } = {}) {
     });
     startSession(req, res, u.id);
     return { user: { id: u.id, name: u.name, username: u.username } };
+  }, { auth: false });
+
+  // Forgot your password: email yourself a code (lasts an hour). The answer is
+  // the same whether or not there's an account, so this can't be used to
+  // find out who's signed up.
+  route('POST', '/api/forgot', async ({ body, req }) => {
+    const email = parseEmail(body.email);
+    if (!sendMail) fail(503, "Email reset isn't turned on yet. Ask your partner for a reset code.");
+    const key = loginKey(req, `forgot:${email}`);
+    if (loginBlocked(key)) fail(429, 'Too many tries. Wait 15 minutes and try again.');
+    recordLoginFailure(key); // every request counts toward the limit
+    const u = q('SELECT * FROM users WHERE email = ?').get(email);
+    if (u) {
+      const code = inviteCode() + inviteCode().slice(0, 2);
+      tx(() => {
+        q('UPDATE reset_codes SET used = 1 WHERE user_id = ? AND used = 0').run(u.id);
+        q('INSERT INTO reset_codes (user_id, created_by, code_hash, expires_at) VALUES (?, ?, ?, ?)').run(
+          u.id, u.id, crypto.createHash('sha256').update(code).digest('hex'), Date.now() + 3600 * 1000
+        );
+      });
+      const origin = `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host}`;
+      const link = `${origin}/?reset=${code}&email=${encodeURIComponent(email)}`;
+      try {
+        await sendMail({
+          to: email,
+          subject: 'Your AccountAbility reset code',
+          text: `Hey ${u.name},\n\nYour reset code is ${code}\n\nOpen this link to set a new password:\n${link}\n\nIt works once, for an hour. If you didn't ask for this, ignore it; your password hasn't changed.\n\nAccountAbility`,
+        });
+      } catch (err) {
+        console.error('reset email failed:', err.message);
+        fail(502, "Couldn't send the email. Try again in a minute, or ask your partner for a reset code.");
+      }
+    }
+    return { sent: true };
   }, { auth: false });
 
   // Change your own password while logged in. Other devices get logged out.

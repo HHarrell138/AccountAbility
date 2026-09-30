@@ -712,3 +712,49 @@ test('password reset: a partner makes a one-time code', async (t) => {
   assert.equal((await hank('GET', '/api/me')).status, 200); // still logged in here
   assert.equal((await client(base)('POST', '/api/login', { username: 'hank', password: 'brandnew123' })).status, 200);
 });
+
+test('sign up with email; log in with email or an old username; reset by email', async (t) => {
+  const sent = [];
+  const server = createApp({ sendMail: async (m) => sent.push(m) });
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const jake = client(base);
+  const jake2 = client(base);
+  const old = client(base);
+
+  // Names don't have to be unique; emails do.
+  assert.equal((await jake('POST', '/api/signup', { name: 'Jake', email: 'Jake@Example.com ', password: 'password123' })).status, 200);
+  assert.equal((await jake2('POST', '/api/signup', { name: 'Jake', email: 'jake.other@example.com', password: 'password123' })).status, 200);
+  assert.equal((await client(base)('POST', '/api/signup', { name: 'Imposter', email: 'jake@example.com', password: 'password123' })).status, 409);
+  assert.equal((await client(base)('POST', '/api/signup', { name: 'X', email: 'not-an-email', password: 'password123' })).status, 400);
+  assert.equal((await client(base)('POST', '/api/login', { login: 'JAKE@example.com', password: 'password123' })).status, 200);
+
+  // Older accounts log in with their username, and can add an email.
+  await old('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
+  assert.equal((await client(base)('POST', '/api/login', { login: 'hank', password: 'password123' })).status, 200);
+  assert.equal((await old('PATCH', '/api/me', { email: 'jake@example.com' })).status, 409);
+  assert.equal((await old('PATCH', '/api/me', { email: 'hank@example.com' })).data.user.email, 'hank@example.com');
+  assert.equal((await client(base)('POST', '/api/login', { login: 'hank@example.com', password: 'password123' })).status, 200);
+
+  // Forgot password: the same answer for unknown emails, and nothing is sent.
+  assert.deepEqual((await client(base)('POST', '/api/forgot', { email: 'nobody@example.com' })).data, { sent: true });
+  assert.equal(sent.length, 0);
+  assert.deepEqual((await client(base)('POST', '/api/forgot', { email: 'jake@example.com' })).data, { sent: true });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'jake@example.com');
+  const code = /reset code is ([A-Z0-9]{8})/.exec(sent[0].text)[1];
+  assert.match(sent[0].text, new RegExp(`/\\?reset=${code}&email=jake%40example.com`));
+
+  const phone = client(base);
+  assert.equal((await phone('POST', '/api/reset-password', { login: 'jake@example.com', code, password: 'newpassword1' })).status, 200);
+  assert.equal((await jake('GET', '/api/me')).status, 401); // logged out elsewhere
+  assert.equal((await client(base)('POST', '/api/login', { login: 'jake@example.com', password: 'newpassword1' })).status, 200);
+  assert.equal((await client(base)('POST', '/api/reset-password', { login: 'jake@example.com', code, password: 'again12345' })).status, 400); // once
+
+  // Without email set up on the server, it says to ask a partner.
+  const noMail = createApp({ sendMail: null });
+  await new Promise((r) => noMail.listen(0, r));
+  t.after(() => noMail.close());
+  assert.equal((await client(`http://127.0.0.1:${noMail.address().port}`)('POST', '/api/forgot', { email: 'jake@example.com' })).status, 503);
+});

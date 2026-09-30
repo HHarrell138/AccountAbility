@@ -217,7 +217,9 @@
           <button type="button" role="tab" aria-selected="${!signup}" data-action="auth-mode" data-mode="login">Log in</button>
         </div>
         ${signup ? `<label for="f-name">Your first name<input id="f-name" name="name" autocomplete="given-name" maxlength="40" required></label>` : ''}
-        <label for="f-user">Username<input id="f-user" name="username" autocomplete="username" autocapitalize="none" minlength="3" maxlength="30" required></label>
+        ${signup
+          ? `<label for="f-email">Email<input id="f-email" name="email" type="email" autocomplete="email" autocapitalize="none" maxlength="200" required></label>`
+          : `<label for="f-login">Email<input id="f-login" name="login" autocomplete="username" autocapitalize="none" maxlength="200" required placeholder="Or your username, if you have one"></label>`}
         <label for="f-pass">Password<input id="f-pass" name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" minlength="8" required></label>
         <button class="btn primary wide" type="submit">${signup ? 'Create account' : 'Log in'}</button>
         ${signup ? '' : `<button type="button" class="link forgot" data-action="auth-mode" data-mode="reset">Forgot your password?</button>`}
@@ -225,24 +227,31 @@
       <ul class="pitch">
         <li>${uiIcon('pact')}<span><strong>Just you and one person.</strong> No followers, no feed of strangers.</span></li>
         <li>${uiIcon('done')}<span><strong>Goals you agree on.</strong> You both say yes, then you're compared side by side.</span></li>
-        <li>${uiIcon('flame')}<span><strong>One shared streak.</strong> Blue at 70%, green at 100%, gold after three perfect weeks. It counts the lower of your two weeks.</span></li>
+        <li>${uiIcon('flame')}<span><strong>One shared streak.</strong> Blue at 70%, green at 100%, gold after three perfect weeks. You each fill half the bar.</span></li>
       </ul>`;
   }
 
-  // No email here, so a partner makes you a one-time code from their app.
+  // Forgot your password: email yourself a code, or get one from a partner.
+  // The link in the email opens this with the code filled in.
   function resetView() {
+    const r = state.reset || {};
+    const haveCode = r.sent || r.code || r.manual;
     return `
       <section class="hero">
         ${logoMark()}
         <h1 class="wordmark">AccountAbility</h1>
       </section>
-      <form class="card" data-form="reset">
+      <form class="card" data-form="${haveCode ? 'reset' : 'forgot'}">
         <h2 class="card-title">Reset your password</h2>
-        <p class="small muted">Ask your partner for a reset code. In their app: tap your two circles at the top, then Account, then Make a reset code. It works once, for 24 hours.</p>
-        <label for="r-user">Your username<input id="r-user" name="username" autocomplete="username" autocapitalize="none" required></label>
-        <label for="r-code">Reset code<input id="r-code" name="code" autocomplete="one-time-code" autocapitalize="characters" maxlength="12" required></label>
-        <label for="r-pass">New password<input id="r-pass" name="password" type="password" autocomplete="new-password" minlength="8" required></label>
-        <button class="btn primary wide" type="submit">Set new password</button>
+        <label for="r-login">Email<input id="r-login" name="login" autocomplete="username" autocapitalize="none" maxlength="200" required value="${esc(r.email || '')}" ${haveCode ? '' : 'data-autofocus'}></label>
+        ${haveCode
+          ? `${r.sent ? `<p class="small">If there's an account with that email, a code is on its way. Check your inbox (and spam). It works for an hour.</p>` : ''}
+             <label for="r-code">Reset code<input id="r-code" name="code" autocomplete="one-time-code" autocapitalize="characters" maxlength="12" required value="${esc(r.code || '')}" ${r.code ? '' : 'data-autofocus'}></label>
+             <label for="r-pass">New password<input id="r-pass" name="password" type="password" autocomplete="new-password" minlength="8" required ${r.code ? 'data-autofocus' : ''}></label>
+             <button class="btn primary wide" type="submit">Set new password</button>`
+          : `<button class="btn primary wide" type="submit">Email me a code</button>`}
+        <p class="small muted">${haveCode ? 'No email came?' : 'No email on your account?'} Your partner can make you a code: in their app, tap the two circles at the top, then Account.
+          ${haveCode ? '' : '<button type="button" class="link" data-action="have-code">I have a code</button>'}</p>
         <button type="button" class="link forgot" data-action="auth-mode" data-mode="login">Back to log in</button>
       </form>`;
   }
@@ -449,6 +458,13 @@
     const code = state.resetCode;
     return `
       <div class="account">
+        <form data-form="email" class="account-block">
+          <p class="eyebrow">Your email</p>
+          ${state.user.email ? '' : `<p class="small muted">Add it to log in with it, and to reset your password by email if you forget it.</p>`}
+          <label for="acct-email" class="sr-only">Email</label>
+          <input id="acct-email" name="email" type="email" autocomplete="email" autocapitalize="none" maxlength="200" required value="${esc(state.user.email || '')}" placeholder="you@example.com">
+          <button class="btn small" type="submit">${state.user.email ? 'Update email' : 'Add email'}</button>
+        </form>
         <form data-form="password" class="account-block">
           <p class="eyebrow">Change your password</p>
           <label for="pw-cur">Current password<input id="pw-cur" name="current" type="password" autocomplete="current-password" required></label>
@@ -1367,20 +1383,33 @@
 
   const forms = {
     async signup(f) {
-      const { user } = await api('POST', '/api/signup', { name: f.name.value, username: f.username.value, password: f.password.value });
+      const { user } = await api('POST', '/api/signup', { name: f.name.value, email: f.email.value, password: f.password.value });
       state.user = user;
       state.partnerships = [];
       render();
     },
     async login(f) {
-      await api('POST', '/api/login', { username: f.username.value, password: f.password.value });
+      await api('POST', '/api/login', { login: f.login.value, password: f.password.value });
       await boot();
     },
+    async forgot(f) {
+      const email = f.login.value.trim();
+      await api('POST', '/api/forgot', { email });
+      state.reset = { email, sent: true };
+      render();
+    },
     async reset(f) {
-      await api('POST', '/api/reset-password', { username: f.username.value, code: f.code.value, password: f.password.value });
+      await api('POST', '/api/reset-password', { login: f.login.value, code: f.code.value, password: f.password.value });
       state.authMode = 'login';
+      state.reset = null;
       await boot();
       toast('New password set. You’re in.');
+    },
+    async email(f) {
+      const { user } = await api('PATCH', '/api/me', { email: f.email.value });
+      state.user = user;
+      render();
+      toast('Email saved. You can log in with it now.');
     },
     async password(f) {
       await api('POST', '/api/password', { current: f.current.value, password: f.password.value });
@@ -1506,8 +1535,15 @@
   }
 
   const actions = {
+    'have-code'() {
+      const email = app.querySelector('#r-login')?.value || '';
+      state.reset = { email, code: '', manual: true };
+      render();
+      app.querySelector('#r-code')?.focus();
+    },
     'auth-mode'(el) {
       state.authMode = el.dataset.mode;
+      state.reset = null;
       render();
     },
     async logout() {
@@ -1798,6 +1834,14 @@
     if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;
     guarded(refresh);
   }, 30000);
+
+  // A reset link from the email: open the reset form with the code filled in.
+  const params = new URLSearchParams(location.search);
+  if (params.get('reset')) {
+    state.authMode = 'reset';
+    state.reset = { code: params.get('reset'), email: params.get('email') || '' };
+    history.replaceState(null, '', location.pathname);
+  }
 
   boot();
 })();

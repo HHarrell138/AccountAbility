@@ -220,16 +220,14 @@
     }],
     ['POST', /^\/api\/signup$/, (b) => {
       const name = text(b.name, 'Name', { max: 40 });
-      const username = text(b.username, 'Username', { min: 3, max: 30 }).toLowerCase();
-      if (!/^[a-z0-9_.]+$/.test(username)) fail(400, 'Username can only use letters, numbers, _ and .');
-      if (username === 'king') fail(409, 'That username is taken');
+      const username = text(b.email ?? b.username, 'Email', { min: 3, max: 200 }).toLowerCase();
       text(b.password, 'Password', { min: 8 });
       Object.assign(db, fresh(), { me: { id: ME, name, username }, loggedIn: true });
       return { user: db.me };
     }],
     ['POST', /^\/api\/login$/, (b) => {
-      const username = text(b.username, 'Username').toLowerCase();
-      if (!db.me || db.me.username !== username) fail(401, 'Wrong username or password. In the preview, sign up first.');
+      const username = text(b.login ?? b.username, 'Email').toLowerCase();
+      if (!db.me || db.me.username !== username) fail(401, 'Wrong email or password. In the preview, sign up first.');
       db.loggedIn = true;
       return { user: db.me };
     }],
