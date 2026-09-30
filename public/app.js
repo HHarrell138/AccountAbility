@@ -183,7 +183,16 @@
 
   async function loadDash() {
     state.dash = await api('GET', `/api/partnerships/${state.pid}/dashboard?today=${localToday()}`);
+    // The recap shows itself Sunday to Tuesday until you dismiss it, and
+    // any day from Week recap on the streak card.
+    const dow = new Date(`${state.dash.today}T00:00:00Z`).getUTCDay();
+    const inWindow = dow === 0 || dow === 1 || dow === 2;
+    if (state.recapOpen || (inWindow && state.dash.members.length > 1 && state.dash.goals.some((g) => g.status === 'active'))) {
+      state.recap = await api('GET', `/api/partnerships/${state.pid}/recap?today=${localToday()}`);
+    } else state.recap = null;
   }
+
+  const recapKey = (r) => `aa.recap.${state.pid}.${r.start}${r.current ? '.sun' : ''}`;
 
   async function refresh() {
     await loadDash();
@@ -315,6 +324,7 @@
 
       ${progressCard()}
       ${waiting ? inviteCard() : ''}
+      ${state.recap && (state.recapOpen || !store(recapKey(state.recap))) ? recapCard(state.recap) : ''}
       ${streakCard()}
       ${proposals.length ? proposalsCard(proposals) : ''}
 
@@ -603,6 +613,55 @@
 
   const TIER_NAMES = { gold: 'Gold', green: 'Green', blue: 'Blue' };
 
+  // How the week went, together: the combined score, where the streak
+  // landed, each shared goal, and every miss with its reason.
+  function recapCard(r) {
+    const d = state.dash;
+    const nameOf = (id) => (isMe(id) ? 'You' : esc(d.members.find((m) => m.id === id)?.name || 'Your partner'));
+    const short = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    const weekday = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
+    const pct = r.pct == null ? null : Math.round(r.pct * 100);
+    const goalName = (g) => personalPreset(g.icon)?.personal || (g.rows.find((x) => isMe(x.user_id)) || g.rows[0]).title;
+    const sorted = [...r.goals].sort((a, b) => b.pct - a.pct);
+    const verdict = pct == null
+      ? 'No shared goals that week.'
+      : r.tier
+        ? `${TIER_NAMES[r.tier]} ${r.current ? 'so far' : 'week'}. Streak: ${r.weeks} week${r.weeks === 1 ? '' : 's'}.`
+        : r.current ? 'Under 70% so far. Today can still change that.' : 'Under 70%, so the streak broke. New week, clean slate.';
+    const goals = sorted
+      .map((g) => {
+        const p = Math.round(g.pct * 100);
+        return `
+          <li class="recap-goal">
+            <span class="icon-tile sm">${iconSvg(g.icon)}</span>
+            <span class="recap-goal-text"><span>${esc(goalName(g))}</span><span class="bar combined ${p >= 100 ? 'green' : p >= 70 ? 'blue' : ''}"><span style="width:${p}%"></span></span></span>
+            <span class="bar-num">${p}%</span>
+          </li>`;
+      })
+      .join('');
+    const misses = r.misses
+      .map((m) => {
+        const h = d.habits.find((x) => x.id === m.habit_id);
+        return `<li><strong>${nameOf(m.user_id)}</strong> <span class="muted">${weekday(m.day)} · ${esc(h?.title || 'a goal')}</span>${m.note ? `<br><span class="recap-note">“${esc(m.note)}”</span>` : ''}</li>`;
+      })
+      .join('');
+    return `
+      <section class="card recap tier-${r.tier || 'none'}" id="recap">
+        <p class="eyebrow">${r.current ? 'Your week so far' : 'Last week'} · ${short(r.start)} to ${short(r.end)}</p>
+        <div class="recap-head">
+          <span class="recap-pct">${pct == null ? '–' : `${pct}%`}</span>
+          <span class="small">together<br><span class="muted">${verdict}</span></span>
+        </div>
+        ${goals ? `<ul class="recap-goals">${goals}</ul>` : ''}
+        ${sorted.length > 1 && sorted[0].pct > sorted[sorted.length - 1].pct
+          ? `<p class="small"><strong>Best:</strong> ${esc(goalName(sorted[0]))}. <strong>Toughest:</strong> ${esc(goalName(sorted[sorted.length - 1]))}.</p>`
+          : ''}
+        ${misses ? `<p class="eyebrow">Missed, and why</p><ul class="recap-misses">${misses}</ul>` : pct == null ? '' : '<p class="small muted">No misses logged. Nice.</p>'}
+        ${r.nudges || r.cheers ? `<p class="small muted">${r.nudges} nudge${r.nudges === 1 ? '' : 's'} · ${r.cheers} cheer${r.cheers === 1 ? '' : 's'}</p>` : ''}
+        <div class="row"><button class="btn small" data-action="close-recap">${state.recapOpen ? 'Close' : 'Got it'}</button></div>
+      </section>`;
+  }
+
   // The pair streak: its color (blue / green / gold), how far each of you is
   // this week against the 70% and 100% lines, and the last 8 weeks.
   function streakCard() {
@@ -655,6 +714,7 @@
         </div>
         <p class="small muted streak-next">${next}</p>
         ${bars ? `<div class="bars"><p class="eyebrow">This week, together</p>${bars}</div>` : ''}
+        <button class="link recap-link" data-action="open-recap">${new Date(`${d.today}T00:00:00Z`).getUTCDay() === 0 ? 'This week’s recap' : 'Last week’s recap'}</button>
         <p class="legend"><span class="key blue"></span>70%+ <span class="key green"></span>100% <span class="key gold"></span>3 perfect weeks</p>
       </section>`;
   }
@@ -1703,6 +1763,17 @@
     },
     'cancel-reorder'() {
       state.reorder = null;
+      render();
+    },
+    async 'open-recap'() {
+      state.recapOpen = true;
+      await refresh();
+      document.getElementById('recap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    'close-recap'() {
+      if (state.recap) store(recapKey(state.recap), '1');
+      state.recapOpen = false;
+      state.recap = null;
       render();
     },
     'toggle-account'() {

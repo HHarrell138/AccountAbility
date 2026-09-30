@@ -194,6 +194,30 @@ function pairStreak(memberIds, habits, checkins, today, sinceDay, amounts = []) 
   };
 }
 
+// ---------- the weekly recap ----------
+//
+// How one week went for the pair, goal by goal: each shared goal's combined
+// progress (the partners averaged, like the streak bar), plus every miss
+// with its reason. `habits` are the pact's shared-goal rows.
+function weekRecap(memberIds, habits, checkins, amounts, start) {
+  const end = addDays(start, 6);
+  const byGoal = new Map();
+  for (const h of habits) {
+    if (!memberIds.includes(h.user_id)) continue;
+    const p = weekPercent([h.user_id], [h], checkins, start, amounts).pct;
+    if (p === null) continue; // not on the hook that week
+    if (!byGoal.has(h.goal_id)) byGoal.set(h.goal_id, { goal_id: h.goal_id, icon: h.icon, rows: [] });
+    byGoal.get(h.goal_id).rows.push({ user_id: h.user_id, habit_id: h.id, title: h.title, pct: p });
+  }
+  const goals = [...byGoal.values()].map((g) => ({ ...g, pct: g.rows.reduce((t, r) => t + r.pct, 0) / g.rows.length }));
+  const ids = new Set(habits.map((h) => h.id));
+  const misses = checkins
+    .filter((c) => c.status === 'missed' && ids.has(c.habit_id) && c.day >= start && c.day <= end)
+    .sort((a, b) => (a.day < b.day ? -1 : 1))
+    .map((c) => ({ habit_id: c.habit_id, user_id: habits.find((h) => h.id === c.habit_id).user_id, day: c.day, note: c.note || '' }));
+  return { start, end, pct: weekPercent(memberIds, habits, checkins, start, amounts).pct, goals, misses };
+}
+
 const api = {
   isValidDay,
   addDays,
@@ -207,6 +231,7 @@ const api = {
   weekPercent,
   nextTier,
   pairStreak,
+  weekRecap,
 };
 
 // Shared with the browser preview build (public/demo.js).

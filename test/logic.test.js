@@ -122,3 +122,25 @@ test('scheduled habits only count days that have a time', () => {
   assert.equal(L.effectiveTarget(weekend, '2026-09-21'), 1);
   assert.equal(L.availableDays(weekend, '2026-09-21', '2026-09-27'), 2);
 });
+
+test('weekRecap: each goal combined, misses with reasons', () => {
+  const week = '2026-09-14';
+  const day = (i) => L.addDays(week, i);
+  const habits = [
+    habit({ id: 1, user_id: 1, goal_id: 10, icon: 'workout', title: 'Work out', target_per_week: 4 }),
+    habit({ id: 2, user_id: 2, goal_id: 10, icon: 'workout', title: 'Work out', target_per_week: 4 }),
+    habit({ id: 3, user_id: 1, goal_id: 11, icon: 'run', title: 'Run', target_per_week: 1, daily_amount: 10, amount_period: 'week' }),
+    habit({ id: 4, user_id: 2, goal_id: 11, icon: 'run', title: 'Run', target_per_week: 1, daily_amount: 10, amount_period: 'week' }),
+  ];
+  const checkins = [
+    ...[0, 1, 2, 3].map((i) => done(1, day(i))),
+    ...[0, 2, 4].map((i) => done(2, day(i))),
+    { habit_id: 2, day: day(5), status: 'missed', note: 'Double shift' },
+    { habit_id: 2, day: L.addDays(week, 8), status: 'missed', note: 'next week, not counted' },
+  ];
+  const amounts = [{ habit_id: 3, day: day(1), amount: 10 }, { habit_id: 4, day: day(2), amount: 3 }];
+  const r = L.weekRecap([1, 2], habits, checkins, amounts, week);
+  assert.deepEqual(r.goals.map((g) => [g.goal_id, g.pct]), [[10, 0.875], [11, 0.65]]);
+  assert.deepEqual(r.misses, [{ habit_id: 2, user_id: 2, day: day(5), note: 'Double shift' }]);
+  assert.equal(r.pct, (1 + (0.75 + 0.3) / 2) / 2);
+});

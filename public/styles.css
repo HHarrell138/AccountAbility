@@ -693,3 +693,22 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---------- weekly recap ---------- */
+
+.recap { --tier: var(--muted); border-color: var(--line); }
+.recap.tier-blue { --tier: var(--you); }
+.recap.tier-green { --tier: var(--good); }
+.recap.tier-gold { --tier: var(--gold); border-color: var(--gold); }
+.recap .eyebrow { margin: 0 0 8px; }
+.recap-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.recap-pct { font: 800 2.6rem/1 var(--font-display); color: var(--tier); }
+.recap-goals, .recap-misses { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.recap-goal { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.recap-goal-text { display: grid; gap: 6px; min-width: 0; font-weight: 600; font-size: 0.92rem; }
+.recap-goal-text > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recap-goal .bar { height: 8px; }
+.recap-misses li { font-size: 0.9rem; padding: 8px 12px; background: var(--surface-2); border-radius: 12px; }
+.recap-note { color: var(--ink); font-style: italic; }
+.recap-link { display: block; margin: 12px 0 0; font-size: 0.9rem; }
+.recap > p.small { margin: 0 0 14px; }

@@ -615,6 +615,34 @@ function createApp({ dbFile = ':memory:', sendMail = mail.config() ? (m) => mail
     };
   });
 
+  // The weekly recap. On Sunday it's this week so far; otherwise last week.
+  route('GET', '/api/partnerships/:id/recap', ({ user, params, query }) => {
+    const p = requireMember(params.id, user.id);
+    const today = clientToday(query.get('today'));
+    const isSunday = new Date(`${today}T00:00:00Z`).getUTCDay() === 0;
+    const start = isSunday ? L.weekStart(today) : L.addDays(L.weekStart(today), -7);
+    const end = L.addDays(start, 6);
+    const ids = memberIds(p.id);
+    const shared = q('SELECT * FROM habits WHERE partnership_id = ? AND goal_id IS NOT NULL').all(p.id);
+    const checkins = q(
+      `SELECT c.habit_id, c.user_id, c.day, c.status, c.note FROM checkins c JOIN habits h ON h.id = c.habit_id
+       WHERE h.partnership_id = ? AND h.goal_id IS NOT NULL`
+    ).all(p.id);
+    const amounts = q(
+      `SELECT a.habit_id, a.day, a.amount FROM amounts a JOIN habits h ON h.id = a.habit_id
+       WHERE h.partnership_id = ? AND h.goal_id IS NOT NULL`
+    ).all(p.id);
+    const recap = L.weekRecap(ids, shared, checkins, amounts, start);
+    // Where the streak stood at the end of that week.
+    const streak = ids.length >= 2 ? L.pairStreak(ids, shared, checkins, isSunday ? today : L.addDays(end, 1), p.created_day, amounts) : null;
+    const counts = q(
+      `SELECT kind, COUNT(*) AS n FROM events WHERE partnership_id = ? AND kind IN ('nudge', 'cheer')
+       AND substr(created_at, 1, 10) BETWEEN ? AND ? GROUP BY kind`
+    ).all(p.id, start, end);
+    const count = (k) => counts.find((c) => c.kind === k)?.n || 0;
+    return { ...recap, current: isSunday, tier: streak?.tier || null, weeks: streak?.weeks || 0, nudges: count('nudge'), cheers: count('cheer') };
+  });
+
   // Optional per-day times, e.g. {"mon":"05:30","sat":"09:00"}. Days left out
   // are off. When set, the weekly target is the number of scheduled days.
   function parseSchedule(value) {

@@ -272,6 +272,26 @@
       }
       return { ok: true };
     }],
+    ['GET', /^\/api\/partnerships\/(\d+)\/recap$/, (b, query, m) => {
+      const p = requirePact(m[1]);
+      const today = query.get('today') || localToday();
+      const isSunday = new Date(`${today}T00:00:00Z`).getUTCDay() === 0;
+      const start = isSunday ? L.weekStart(today) : L.addDays(L.weekStart(today), -7);
+      const end = L.addDays(start, 6);
+      const ids = db.members;
+      const shared = db.habits.filter((h) => h.goal_id);
+      const recap = L.weekRecap(ids, shared, db.checkins, db.amounts, start);
+      const streak = ids.length >= 2 ? L.pairStreak(ids, shared, db.checkins, isSunday ? today : L.addDays(end, 1), p.created_day, db.amounts) : null;
+      const inWeek = (e) => e.created_at.slice(0, 10) >= start && e.created_at.slice(0, 10) <= end;
+      return {
+        ...recap,
+        current: isSunday,
+        tier: streak?.tier || null,
+        weeks: streak?.weeks || 0,
+        nudges: db.events.filter((e) => e.kind === 'nudge' && inWeek(e)).length,
+        cheers: db.events.filter((e) => e.kind === 'cheer' && inWeek(e)).length,
+      };
+    }],
     ['GET', /^\/api\/partnerships\/(\d+)\/dashboard$/, (b, query, m) => {
       const p = requirePact(m[1]);
       const today = query.get('today') || localToday();
