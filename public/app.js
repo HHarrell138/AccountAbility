@@ -432,7 +432,11 @@
   // Tapping your avatars at the top: every pact you're in, and a way to start
   // or join another.
   function pactsMenu() {
-    const rows = state.partnerships
+    // Pacts with a partner first, then ones still waiting for someone to
+    // join; alphabetical within each.
+    const waitingOn = (p) => ((p.members || []).length < 2 ? 1 : 0);
+    const rows = [...state.partnerships]
+      .sort((a, b) => waitingOn(a) - waitingOn(b) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
       .map((p) => {
         const others = (p.members || []).filter((m) => !isMe(m.id));
         const current = p.id === state.pid;
