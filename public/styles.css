@@ -203,6 +203,13 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .pact-avs .av { border: 2px solid var(--surface-2); }
 .pact-avs .av + .av { margin-left: -8px; }
 .pact-check { color: var(--you); width: 20px; height: 20px; }
+.forgot { display: block; margin: 12px auto 0; }
+.account { display: grid; gap: 12px; margin-top: 14px; }
+.account-block { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.account-block .eyebrow { margin: 0; }
+.account-block label { margin: 0; }
+.account-block .btn { justify-self: start; }
+.reset-code { font: 800 1.8rem/1 var(--font-display); letter-spacing: 0.12em; color: var(--you); margin: 4px 0; user-select: all; }
 .pacts-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
 .pact-row.editing { cursor: default; }
 .left-list { display: grid; gap: 8px; margin: 0 0 14px; }

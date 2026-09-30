@@ -203,6 +203,7 @@
   const logoMark = () => `<span class="mark">${uiIcon('pact')}</span>`;
 
   function authView() {
+    if (state.authMode === 'reset') return resetView();
     const signup = state.authMode === 'signup';
     return `
       <section class="hero">
@@ -219,12 +220,31 @@
         <label for="f-user">Username<input id="f-user" name="username" autocomplete="username" autocapitalize="none" minlength="3" maxlength="30" required></label>
         <label for="f-pass">Password<input id="f-pass" name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" minlength="8" required></label>
         <button class="btn primary wide" type="submit">${signup ? 'Create account' : 'Log in'}</button>
+        ${signup ? '' : `<button type="button" class="link forgot" data-action="auth-mode" data-mode="reset">Forgot your password?</button>`}
       </form>
       <ul class="pitch">
         <li>${uiIcon('pact')}<span><strong>Just you and one person.</strong> No followers, no feed of strangers.</span></li>
         <li>${uiIcon('done')}<span><strong>Goals you agree on.</strong> You both say yes, then you're compared side by side.</span></li>
         <li>${uiIcon('flame')}<span><strong>One shared streak.</strong> Blue at 70%, green at 100%, gold after three perfect weeks. It counts the lower of your two weeks.</span></li>
       </ul>`;
+  }
+
+  // No email here, so a partner makes you a one-time code from their app.
+  function resetView() {
+    return `
+      <section class="hero">
+        ${logoMark()}
+        <h1 class="wordmark">AccountAbility</h1>
+      </section>
+      <form class="card" data-form="reset">
+        <h2 class="card-title">Reset your password</h2>
+        <p class="small muted">Ask your partner for a reset code. In their app: tap your two circles at the top, then Account, then Make a reset code. It works once, for 24 hours.</p>
+        <label for="r-user">Your username<input id="r-user" name="username" autocomplete="username" autocapitalize="none" required></label>
+        <label for="r-code">Reset code<input id="r-code" name="code" autocomplete="one-time-code" autocapitalize="characters" maxlength="12" required></label>
+        <label for="r-pass">New password<input id="r-pass" name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button class="btn primary wide" type="submit">Set new password</button>
+        <button type="button" class="link forgot" data-action="auth-mode" data-mode="login">Back to log in</button>
+      </form>`;
   }
 
   function onboardView() {
@@ -416,9 +436,37 @@
           : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
              <div class="pacts-foot">
                <button class="link" data-action="edit-pacts">Edit pacts</button>
-               ${window.AA_DEMO ? '' : `<button class="link quiet" data-action="logout">Log out</button>`}
-             </div>`}
+               ${window.AA_DEMO ? '' : `<button class="link" data-action="toggle-account">Account</button>
+               <button class="link quiet" data-action="logout">Log out</button>`}
+             </div>
+             ${state.accountOpen ? accountPanel() : ''}`}
       </section>`;
+  }
+
+  // Your password, and a reset code for a partner who's locked out.
+  function accountPanel() {
+    const partners = state.dash.members.filter((m) => !isMe(m.id));
+    const code = state.resetCode;
+    return `
+      <div class="account">
+        <form data-form="password" class="account-block">
+          <p class="eyebrow">Change your password</p>
+          <label for="pw-cur">Current password<input id="pw-cur" name="current" type="password" autocomplete="current-password" required></label>
+          <label for="pw-new">New password<input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+          <button class="btn small" type="submit">Save password</button>
+        </form>
+        ${partners
+          .map((m) => `
+            <div class="account-block">
+              <p class="eyebrow">${esc(m.name)} locked out?</p>
+              ${code && code.userId === m.id
+                ? `<p class="reset-code">${esc(code.code)}</p>
+                   <p class="small muted">Text this to ${esc(m.name)}. On the log in screen they tap Forgot your password? and enter it. It works once, for 24 hours.</p>`
+                : `<p class="small muted">Make a one-time code ${esc(m.name)} can use to set a new password. They'll see that you made it.</p>
+                   <button class="btn small" data-action="reset-code" data-user="${m.id}">Make a reset code</button>`}
+            </div>`)
+          .join('')}
+      </div>`;
   }
 
   // Pacts you left or deleted in the last 24 hours, each with Undo.
@@ -1239,6 +1287,7 @@
     switch (e.kind) {
       case 'created': text = `${who} started the pact.`; break;
       case 'joined': text = `${who} joined. It's on.`; break;
+      case 'reset_code': text = `${who} made a password reset code for ${whom}.`; break;
       case 'left': text = `${who} left the pact. Shared goals ended with it.`; break;
       case 'done': case 'done_late': text = `${who} did ${habit}.${note}${late}`; break;
       case 'missed': case 'missed_late': text = `${who} missed ${habit}.${note}${late}`; break;
@@ -1326,6 +1375,18 @@
     async login(f) {
       await api('POST', '/api/login', { username: f.username.value, password: f.password.value });
       await boot();
+    },
+    async reset(f) {
+      await api('POST', '/api/reset-password', { username: f.username.value, code: f.code.value, password: f.password.value });
+      state.authMode = 'login';
+      await boot();
+      toast('New password set. You’re in.');
+    },
+    async password(f) {
+      await api('POST', '/api/password', { current: f.current.value, password: f.password.value });
+      state.accountOpen = false;
+      render();
+      toast('Password changed. Other devices are logged out.');
     },
     async 'create-pact'(f) {
       const { partnership } = await api('POST', '/api/partnerships', { name: f.name.value, today: localToday() });
@@ -1608,6 +1669,16 @@
       state.reorder = null;
       render();
     },
+    'toggle-account'() {
+      state.accountOpen = !state.accountOpen;
+      state.resetCode = null;
+      render();
+    },
+    async 'reset-code'(el) {
+      const { code } = await api('POST', `/api/partnerships/${state.pid}/reset-code`, { user_id: Number(el.dataset.user) });
+      state.resetCode = { userId: Number(el.dataset.user), code };
+      render();
+    },
     'edit-pacts'() {
       state.pactsEdit = !state.pactsEdit;
       state.pactConfirm = null;
@@ -1634,6 +1705,8 @@
       await undoLeave(Number(el.dataset.leave));
     },
     'toggle-pacts'() {
+      state.accountOpen = false;
+      state.resetCode = null;
       state.pactsEdit = false;
       state.pactConfirm = null;
       state.pactsOpen = !state.pactsOpen;

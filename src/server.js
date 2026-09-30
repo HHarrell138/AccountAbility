@@ -263,6 +263,50 @@ function createApp({ dbFile = ':memory:' } = {}) {
     return { user: { id: u.id, name: u.name, username: u.username } };
   }, { auth: false });
 
+  // Forgot your password: a partner makes you a one-time code (below), and
+  // you trade it for a new password here. It logs you out everywhere else.
+  route('POST', '/api/reset-password', ({ body, req, res }) => {
+    const username = str(body.username, 'Username').toLowerCase();
+    const code = str(body.code, 'Reset code', { max: 20 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const password = str(body.password, 'New password', { min: 8, max: 200 });
+    const key = loginKey(req, `reset:${username}`);
+    if (loginBlocked(key)) fail(429, 'Too many tries. Wait 15 minutes and try again.');
+    const u = q('SELECT * FROM users WHERE username = ?').get(username);
+    const hash = crypto.createHash('sha256').update(code).digest('hex');
+    const r = u && q('SELECT * FROM reset_codes WHERE user_id = ? AND used = 0 AND expires_at > ? ORDER BY id DESC').get(u.id, Date.now());
+    if (!r || !crypto.timingSafeEqual(Buffer.from(r.code_hash, 'hex'), Buffer.from(hash, 'hex'))) {
+      recordLoginFailure(key);
+      fail(400, "That code doesn't match. Ask your partner for a new one.");
+    }
+    loginFailures.delete(key);
+    const { salt, hash: passHash } = hashPassword(password);
+    tx(() => {
+      q('UPDATE users SET pass_salt = ?, pass_hash = ? WHERE id = ?').run(salt, passHash, u.id);
+      q('UPDATE reset_codes SET used = 1 WHERE user_id = ?').run(u.id);
+      q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    });
+    startSession(req, res, u.id);
+    return { user: { id: u.id, name: u.name, username: u.username } };
+  }, { auth: false });
+
+  // Change your own password while logged in. Other devices get logged out.
+  route('POST', '/api/password', ({ user, body, req, res }) => {
+    const current = str(body.current, 'Current password', { max: 200 });
+    const password = str(body.password, 'New password', { min: 8, max: 200 });
+    const u = q('SELECT * FROM users WHERE id = ?').get(user.id);
+    const key = loginKey(req, `change:${u.username}`);
+    if (loginBlocked(key)) fail(429, 'Too many tries. Wait 15 minutes and try again.');
+    if (!verifyPassword(current, u.pass_salt, u.pass_hash)) {
+      recordLoginFailure(key);
+      fail(400, 'Your current password is wrong');
+    }
+    const { salt, hash } = hashPassword(password);
+    q('UPDATE users SET pass_salt = ?, pass_hash = ? WHERE id = ?').run(salt, hash, u.id);
+    q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    startSession(req, res, u.id);
+    return { ok: true };
+  });
+
   route('POST', '/api/logout', ({ req, res }) => {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     if (token) q('DELETE FROM sessions WHERE token = ?').run(token);
@@ -408,6 +452,23 @@ function createApp({ dbFile = ':memory:' } = {}) {
       }
     }
     return { ok: true };
+  });
+
+  // Make a one-time reset code for your partner, to text them. It lasts a
+  // day, replaces any earlier one, and the feed shows you made it.
+  route('POST', '/api/partnerships/:id/reset-code', ({ user, params, body }) => {
+    const p = requireMember(params.id, user.id);
+    const target = int(body.user_id, 'user_id', 1, Number.MAX_SAFE_INTEGER);
+    if (target === user.id) fail(400, 'Use Change password for your own');
+    if (!memberIds(p.id).includes(target)) fail(404, 'That person is not in this pact');
+    const code = inviteCode() + inviteCode().slice(0, 2); // 8 characters
+    const hash = crypto.createHash('sha256').update(code).digest('hex');
+    tx(() => {
+      q('UPDATE reset_codes SET used = 1 WHERE user_id = ? AND used = 0').run(target);
+      q('INSERT INTO reset_codes (user_id, created_by, code_hash, expires_at) VALUES (?, ?, ?, ?)').run(target, user.id, hash, Date.now() + 24 * 3600 * 1000);
+      addEvent({ partnership_id: p.id, actor_id: user.id, target_id: target, kind: 'reset_code' });
+    });
+    return { code };
   });
 
   // Your own order for your goals. Only your rows move; your partner keeps theirs.

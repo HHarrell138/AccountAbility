@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS memberships (
   PRIMARY KEY (partnership_id, user_id)
 );
 
+-- One-time password reset codes. There's no email, so a partner makes one
+-- for you (the feed shows they did) and you use it within a day.
+CREATE TABLE IF NOT EXISTS reset_codes (
+  id          INTEGER PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash   TEXT NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  used        INTEGER NOT NULL DEFAULT 0
+);
+
 -- Leaving (or deleting) a pact, kept for 24 hours so it can be undone: what
 -- the leave changed, to put back exactly. A pact with nobody left in it
 -- stays until its last leave expires, then it's deleted for real.
