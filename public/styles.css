@@ -213,10 +213,6 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .settings-card label, .settings-card p { margin: 0; }
 .settings-card .btn:not(.wide) { justify-self: start; }
 .settings-card + .btn.wide { margin-top: 20px; }
-.partner-reset { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
-.partner-reset-name { font-weight: 700; }
-.partner-reset-code { grid-column: 1 / -1; }
-.reset-code { font: 800 1.8rem/1 var(--font-display); letter-spacing: 0.12em; color: var(--you); margin: 4px 0; user-select: all; }
 .pacts-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
 .pact-row.editing { cursor: default; }
 .left-list { display: grid; gap: 8px; margin: 0 0 14px; }

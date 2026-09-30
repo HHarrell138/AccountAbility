@@ -308,7 +308,6 @@ function createApp({
       goal_ended: [others, `${e.actor} ended ${e.habit}`, e.pact],
       joined: [others, `${e.actor} joined ${e.pact}`, 'Agree on your first shared goal.'],
       left: [others, `${e.actor} left ${e.pact}`, 'Your shared goals there ended.'],
-      reset_code: [[e.target_id], `${e.actor} made you a password reset code`, "If you didn't ask for one, check with them."],
     }[e.kind.replace('_late', '')];
     if (!say || !say[0].length) return;
     notify(say[0], { title: say[1], body: say[2], tag: `${e.partnership_id}-${e.kind}-${e.habit_id || ''}`, url: '/' });
@@ -487,8 +486,8 @@ function createApp({
     return { user: { id: u.id, name: u.name, username: u.username, email: u.email } };
   }, { auth: false });
 
-  // Forgot your password: a partner makes you a one-time code (below), and
-  // you trade it for a new password here. It logs you out everywhere else.
+  // Forgot your password: trade the emailed code (see /api/forgot) for a new
+  // password. It logs you out everywhere else.
   route('POST', '/api/reset-password', ({ body, req, res }) => {
     const username = str(body.login ?? body.email ?? body.username, 'Email').toLowerCase();
     const code = str(body.code, 'Reset code', { max: 20 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -500,7 +499,7 @@ function createApp({
     const r = u && q('SELECT * FROM reset_codes WHERE user_id = ? AND used = 0 AND expires_at > ? ORDER BY id DESC').get(u.id, Date.now());
     if (!r || !crypto.timingSafeEqual(Buffer.from(r.code_hash, 'hex'), Buffer.from(hash, 'hex'))) {
       recordLoginFailure(key);
-      fail(400, "That code doesn't match. Ask your partner for a new one.");
+      fail(400, "That code doesn't match. Send yourself a new one.");
     }
     loginFailures.delete(key);
     const { salt, hash: passHash } = hashPassword(password);
@@ -518,7 +517,7 @@ function createApp({
   // find out who's signed up.
   route('POST', '/api/forgot', async ({ body, req }) => {
     const email = parseEmail(body.email);
-    if (!sendMail) fail(503, "Email reset isn't turned on yet. Ask your partner for a reset code.");
+    if (!sendMail) fail(503, "Password reset by email isn't set up yet.");
     const key = loginKey(req, `forgot:${email}`);
     if (loginBlocked(key)) fail(429, 'Too many tries. Wait 15 minutes and try again.');
     recordLoginFailure(key); // every request counts toward the limit
@@ -541,7 +540,7 @@ function createApp({
         });
       } catch (err) {
         console.error('reset email failed:', err.message);
-        fail(502, "Couldn't send the email. Try again in a minute, or ask your partner for a reset code.");
+        fail(502, "Couldn't send the email. Try again in a minute.");
       }
     }
     return { sent: true };
@@ -710,23 +709,6 @@ function createApp({
       }
     }
     return { ok: true };
-  });
-
-  // Make a one-time reset code for your partner, to text them. It lasts a
-  // day, replaces any earlier one, and the feed shows you made it.
-  route('POST', '/api/partnerships/:id/reset-code', ({ user, params, body }) => {
-    const p = requireMember(params.id, user.id);
-    const target = int(body.user_id, 'user_id', 1, Number.MAX_SAFE_INTEGER);
-    if (target === user.id) fail(400, 'Use Change password for your own');
-    if (!memberIds(p.id).includes(target)) fail(404, 'That person is not in this pact');
-    const code = inviteCode() + inviteCode().slice(0, 2); // 8 characters
-    const hash = crypto.createHash('sha256').update(code).digest('hex');
-    tx(() => {
-      q('UPDATE reset_codes SET used = 1 WHERE user_id = ? AND used = 0').run(target);
-      q('INSERT INTO reset_codes (user_id, created_by, code_hash, expires_at) VALUES (?, ?, ?, ?)').run(target, user.id, hash, Date.now() + 24 * 3600 * 1000);
-      addEvent({ partnership_id: p.id, actor_id: user.id, target_id: target, kind: 'reset_code' });
-    });
-    return { code };
   });
 
   // Your own order for your goals. Only your rows move; your partner keeps theirs.

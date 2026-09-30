@@ -59,8 +59,7 @@ CREATE TABLE IF NOT EXISTS push_subs (
   created_at  TEXT NOT NULL DEFAULT ${NOW}
 );
 
--- One-time password reset codes. There's no email, so a partner makes one
--- for you (the feed shows they did) and you use it within a day.
+-- One-time password reset codes, emailed to you (hashed here, an hour each).
 CREATE TABLE IF NOT EXISTS reset_codes (
   id          INTEGER PRIMARY KEY,
   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

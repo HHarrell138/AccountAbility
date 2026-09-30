@@ -663,54 +663,22 @@ test('leave a pact: your partner keeps it; the last one out deletes it; both und
   assert.deepEqual((await hank('GET', '/api/me')).data.partnerships.map((p) => p.name), ['Test']);
 });
 
-test('password reset: a partner makes a one-time code', async (t) => {
+test('change your password: needs the current one, logs out other devices', async (t) => {
   const server = createApp();
   await new Promise((r) => server.listen(0, r));
   t.after(() => server.close());
   const base = `http://127.0.0.1:${server.address().port}`;
-  const today = L.utcToday();
   const hank = client(base);
-  const king = client(base);
-  const stranger = client(base);
+  const otherPhone = client(base);
   await hank('POST', '/api/signup', { name: 'Hank', username: 'hank', password: 'password123' });
-  await king('POST', '/api/signup', { name: 'King', username: 'king', password: 'password123' });
-  await stranger('POST', '/api/signup', { name: 'Zed', username: 'zed', password: 'password123' });
-  const pact = (await hank('POST', '/api/partnerships', { today })).data.partnership;
-  await king('POST', '/api/partnerships/join', { code: pact.invite_code });
-  const kingId = (await king('GET', '/api/me')).data.user.id;
-  const hankId = (await hank('GET', '/api/me')).data.user.id;
-
-  // Only someone in a pact with you can make one, and not for themselves.
-  assert.equal((await stranger('POST', `/api/partnerships/${pact.id}/reset-code`, { user_id: kingId })).status, 404);
-  assert.equal((await hank('POST', `/api/partnerships/${pact.id}/reset-code`, { user_id: hankId })).status, 400);
-  const first = (await hank('POST', `/api/partnerships/${pact.id}/reset-code`, { user_id: kingId })).data.code;
-  const { code } = (await hank('POST', `/api/partnerships/${pact.id}/reset-code`, { user_id: kingId })).data;
-  assert.match(code, /^[A-Z0-9]{8}$/);
-
-  // King sees that Hank made one.
-  const feed = (await king('GET', `/api/partnerships/${pact.id}/dashboard?today=${today}`)).data.events;
-  assert.deepEqual([feed[0].kind, feed[0].actor_id, feed[0].target_id], ['reset_code', hankId, kingId]);
-
-  // A new code replaces the old one; a wrong code or username fails.
-  const kingPhone = client(base);
-  assert.equal((await kingPhone('POST', '/api/reset-password', { username: 'king', code: first, password: 'newpassword1' })).status, 400);
-  assert.equal((await kingPhone('POST', '/api/reset-password', { username: 'zed', code, password: 'newpassword1' })).status, 400);
-  assert.equal((await kingPhone('POST', '/api/reset-password', { username: 'king', code, password: 'short' })).status, 400);
-  // Lower case and a space are fine.
-  const ok = await kingPhone('POST', '/api/reset-password', { username: 'King', code: ` ${code.toLowerCase().slice(0, 4)} ${code.toLowerCase().slice(4)}`, password: 'newpassword1' });
-  assert.equal(ok.status, 200);
-  assert.equal((await kingPhone('GET', '/api/me')).status, 200); // logged in on the new phone
-  assert.equal((await king('GET', '/api/me')).status, 401); // other sessions are logged out
-  // Works once; the old password is gone.
-  assert.equal((await client(base)('POST', '/api/reset-password', { username: 'king', code, password: 'another123' })).status, 400);
-  assert.equal((await client(base)('POST', '/api/login', { username: 'king', password: 'password123' })).status, 401);
-  assert.equal((await client(base)('POST', '/api/login', { username: 'king', password: 'newpassword1' })).status, 200);
-
-  // Changing your own password needs the current one.
+  await otherPhone('POST', '/api/login', { login: 'hank', password: 'password123' });
   assert.equal((await hank('POST', '/api/password', { current: 'wrong-one', password: 'brandnew123' })).status, 400);
+  assert.equal((await hank('POST', '/api/password', { current: 'password123', password: 'short' })).status, 400);
   assert.equal((await hank('POST', '/api/password', { current: 'password123', password: 'brandnew123' })).status, 200);
   assert.equal((await hank('GET', '/api/me')).status, 200); // still logged in here
-  assert.equal((await client(base)('POST', '/api/login', { username: 'hank', password: 'brandnew123' })).status, 200);
+  assert.equal((await otherPhone('GET', '/api/me')).status, 401); // logged out there
+  assert.equal((await client(base)('POST', '/api/login', { login: 'hank', password: 'password123' })).status, 401);
+  assert.equal((await client(base)('POST', '/api/login', { login: 'hank', password: 'brandnew123' })).status, 200);
 });
 
 test('sign up with email; log in with email or an old username; reset by email', async (t) => {

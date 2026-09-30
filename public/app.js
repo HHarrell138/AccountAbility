@@ -261,8 +261,9 @@
              <label for="r-pass">New password<input id="r-pass" name="password" type="password" autocomplete="new-password" minlength="8" required ${r.code ? 'data-autofocus' : ''}></label>
              <button class="btn primary wide" type="submit">Set new password</button>`
           : `<button class="btn primary wide" type="submit">Email me a code</button>`}
-        <p class="small muted">${haveCode ? 'No email came?' : 'No email on your account?'} Your partner can make you a code: in their app, tap the two circles at the top, then Account.
-          ${haveCode ? '' : '<button type="button" class="link" data-action="have-code">I have a code</button>'}</p>
+        ${haveCode
+          ? `<p class="small muted">No email? Check your spam folder, or go back and send it again.</p>`
+          : `<p class="small muted"><button type="button" class="link" data-action="have-code">I already have a code</button></p>`}
         <button type="button" class="link forgot" data-action="auth-mode" data-mode="login">Back to log in</button>
       </form>`;
   }
@@ -518,16 +519,8 @@
   }
 
   // Account settings: its own page, from the pacts menu. Notifications,
-  // email, password, and a reset code for a partner who's locked out.
+  // email and password.
   function settingsView() {
-    const code = state.resetCode;
-    // Everyone you share a pact with, once each, with a pact to ask through.
-    const partners = [];
-    for (const p of state.partnerships) {
-      for (const m of p.members || []) {
-        if (m.id !== state.user.id && !partners.some((x) => x.id === m.id)) partners.push({ ...m, pid: p.id });
-      }
-    }
     return `
       <header class="settings-top">
         <button class="back" data-action="close-settings">${uiIcon('chevron', 'back-chev')}Back</button>
@@ -554,25 +547,6 @@
         <label for="pw-new">New password<input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="8" required></label>
         <button class="btn" type="submit">Change password</button>
       </form>
-
-      ${partners.length
-        ? `<section class="card settings-card">
-            <h2 class="card-title">Partner locked out?</h2>
-            <p class="small muted">Make a one-time code they can use to set a new password. They'll see that you made it.</p>
-            ${partners
-              .map((m) => `
-                <div class="partner-reset">
-                  ${avatar(m)}
-                  <span class="partner-reset-name">${esc(m.name)}</span>
-                  ${code && code.userId === m.id ? '' : `<button class="btn small" data-action="reset-code" data-user="${m.id}" data-pid="${m.pid}">Make a code</button>`}
-                  ${code && code.userId === m.id
-                    ? `<div class="partner-reset-code"><p class="reset-code">${esc(code.code)}</p>
-                       <p class="small muted">Text this to ${esc(m.name)}. On the log in screen they tap Forgot your password? and enter it. It works once, for 24 hours.</p></div>`
-                    : ''}
-                </div>`)
-              .join('')}
-          </section>`
-        : ''}
 
       <button class="btn wide" data-action="logout">Log out</button>`;
   }
@@ -1705,7 +1679,6 @@
 
   function closeSettings() {
     state.view = null;
-    state.resetCode = null;
     render();
     window.scrollTo(0, 0);
   }
@@ -1934,7 +1907,6 @@
     'open-settings'() {
       state.view = 'settings';
       state.pactsOpen = false;
-      state.resetCode = null;
       history.pushState({ view: 'settings' }, '');
       render();
       window.scrollTo(0, 0);
@@ -1942,11 +1914,6 @@
     'close-settings'() {
       if (history.state?.view === 'settings') history.back(); // popstate renders
       else closeSettings();
-    },
-    async 'reset-code'(el) {
-      const { code } = await api('POST', `/api/partnerships/${el.dataset.pid}/reset-code`, { user_id: Number(el.dataset.user) });
-      state.resetCode = { userId: Number(el.dataset.user), code };
-      render();
     },
     'edit-pacts'() {
       state.pactsEdit = !state.pactsEdit;
@@ -1974,7 +1941,6 @@
       await undoLeave(Number(el.dataset.leave));
     },
     'toggle-pacts'() {
-      state.resetCode = null;
       state.pactsEdit = false;
       state.pactConfirm = null;
       state.pactsOpen = !state.pactsOpen;
