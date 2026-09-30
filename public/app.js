@@ -893,6 +893,11 @@
       const cls = ['dot', c ? c.status : ran ? 'done' : '', got && !ran ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
       const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : got ? fmtAmount(got, h.unit) : day;
       const fill = got ? ` style="--pct:${Math.min(100, Math.round((got / h.daily_amount) * 100))}%"` : '';
+      // Your own days this week are buttons: tap one to log it (or undo it).
+      if (isMe(h.user_id) && !h.archived_day && !offDay && day >= h.created_day && canLogDay(day)) {
+        const what = tracked(h) ? `Add ${UNIT_NAMES[h.unit] || h.unit}` : c?.status === 'done' ? 'Undo' : 'Log';
+        return `<button type="button" class="${cls} tap" data-action="tap-day" data-habit="${h.id}" data-day="${day}" aria-label="${esc(`${what} for ${dayName(day)}: ${title}`)}"${fill}></button>`;
+      }
       return `<span class="${cls}" title="${esc(title)}"${fill}></span>`;
     }).join('');
 
@@ -936,10 +941,6 @@
       bits.push(`<span class="${w.todayC.status}-text">${w.todayC.status === 'done' ? 'did it today' : 'missed today'}${note}</span>`);
     }
     if (mine && !w.todayC) bits.push(`<button class="link" data-action="open-miss" data-habit="${h.id}">Missed it?</button>`);
-    const yesterday = addDays(d.today, -1);
-    if (mine && !w.yesterdayC && yesterday >= h.created_day) {
-      bits.push(`<button class="link" data-action="log-done" data-habit="${h.id}" data-day="${yesterday}">Log yesterday (late)</button>`);
-    }
     return `<div class="subline">${bits.join('')}</div>`;
   }
 
@@ -1295,6 +1296,14 @@
   const typed = (h) => h.icon === 'protein' || h.icon === 'calories';
   const weekly = (h) => tracked(h) && h.amount_period === 'week';
 
+  // Days you can still log: today, earlier this week, and yesterday (so
+  // Monday can fix Sunday). Mirrors canLog in src/logic.js.
+  function canLogDay(day) {
+    const today = state.dash.today;
+    return day <= today && (day >= weekStart(today) || day === addDays(today, -1));
+  }
+  const dayName = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' });
+
   // Weekly amount goals: this week's total and target (scaled the week the
   // goal started). Mirrors weeklyAmountTarget in src/logic.js.
   function weekTotal(h) {
@@ -1341,9 +1350,10 @@
           </div>
         </form>`;
     }
+    const day = p?.day && p.day !== state.dash.today ? p.day : null; // tapped an earlier day's circle
     return `
-      <form class="panel" data-form="amount" data-habit="${h.id}">
-        <label for="amount-${h.id}">How many ${esc(UNIT_NAMES[h.unit] || h.unit)}?
+      <form class="panel" data-form="amount" data-habit="${h.id}" ${day ? `data-day="${day}"` : ''}>
+        <label for="amount-${h.id}">How many ${esc(UNIT_NAMES[h.unit] || h.unit)}${day ? ` on ${esc(dayName(day))}` : ''}?${day ? ` <span class="muted">(${esc(fmtAmount(amountOn(h, day), h.unit))} so far, marked late)</span>` : ''}
           <input id="amount-${h.id}" name="amount" type="number" inputmode="decimal" step="any" min="0" required placeholder="${h.unit === 'g' ? 'e.g. 35' : ''}" data-autofocus>
         </label>
         <div class="row">
@@ -1414,7 +1424,7 @@
     const habit = e.habit_title ? `<strong>${esc(e.habit_title)}</strong>` : '';
     const note = e.message ? ` <span class="quote">“${esc(e.message)}”</span>` : '';
     const goal = `<strong>${esc(e.message)}</strong>`;
-    const late = e.kind.endsWith('_late') ? ' <span class="pill warn">late, for yesterday</span>' : '';
+    const late = e.kind.endsWith('_late') ? ` <span class="pill warn">late, for ${e.day ? esc(dayName(e.day)) : 'an earlier day'}</span>` : '';
     let text;
     switch (e.kind) {
       case 'created': text = `${who} started the pact.`; break;
@@ -1467,18 +1477,19 @@
   const listNames = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
   const alsoIn = (res) => (res.also?.length ? ` Also in ${listNames(res.also)}.` : '');
 
-  async function addAmount(habitId, delta, reset) {
+  async function addAmount(habitId, delta, reset, day) {
     const h = state.dash.habits.find((x) => x.id === habitId);
-    const res = await api('POST', '/api/amounts', reset ? { habit_id: habitId, reset: true, today: localToday() } : { habit_id: habitId, delta, today: localToday() });
-    const wasDone = weekly(h) ? weekDone(h) : state.dash.checkins.some((c) => c.habit_id === habitId && c.day === state.dash.today && c.status === 'done');
+    const on = day ? { day } : {};
+    const res = await api('POST', '/api/amounts', reset ? { habit_id: habitId, reset: true, today: localToday(), ...on } : { habit_id: habitId, delta, today: localToday(), ...on });
+    const wasDone = weekly(h) ? weekDone(h) : state.dash.checkins.some((c) => c.habit_id === habitId && c.day === (day || state.dash.today) && c.status === 'done');
     await refresh();
     const total = weekly(h)
       ? `${fmtAmount(res.total, '')} / ${fmtAmount(weekTarget(h), h.unit)} this week`
-      : `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}`;
+      : `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
     toast((reset ? `Reset to 0. ${total}.` : res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`) + alsoIn(res), {
       label: 'Undo',
       run: async () => {
-        await api('POST', '/api/amounts', { habit_id: habitId, delta: -delta, today: localToday() });
+        await api('POST', '/api/amounts', { habit_id: habitId, delta: -delta, today: localToday(), ...on });
         await refresh();
       },
     });
@@ -1488,7 +1499,7 @@
     const res = await api('POST', '/api/checkins', { habit_id: habitId, day, status: 'done', today: localToday() });
     state.panel = null;
     await refresh();
-    toast((day === state.dash.today ? 'Done. Logged.' : 'Logged for yesterday, marked late.') + alsoIn(res), {
+    toast((day === state.dash.today ? 'Done. Logged.' : `Logged for ${dayName(day)}, marked late.`) + alsoIn(res), {
       label: 'Undo',
       run: async () => {
         await api('POST', '/api/checkins/undo', { habit_id: habitId, day, today: localToday() });
@@ -1621,7 +1632,7 @@
       const n = Number(f.amount.value);
       if (!Number.isFinite(n) || n <= 0) throw new Error('Enter an amount');
       state.panel = null;
-      await addAmount(Number(f.dataset.habit), n);
+      await addAmount(Number(f.dataset.habit), n, false, f.dataset.day);
     },
     async miss(f) {
       const res = await api('POST', '/api/checkins', { habit_id: Number(f.dataset.habit), status: 'missed', note: f.note.value, today: localToday() });
@@ -1745,6 +1756,21 @@
     },
     async 'add-amount'(el) {
       await addAmount(Number(el.dataset.habit), Number(el.dataset.delta));
+    },
+    // A day's circle: log it (or undo it), or for amount goals, add to that day.
+    async 'tap-day'(el) {
+      const h = state.dash.habits.find((x) => x.id === Number(el.dataset.habit));
+      const day = el.dataset.day;
+      if (tracked(h)) {
+        state.panel = { type: 'amount', habitId: h.id, where: 'card', day };
+        render();
+        return;
+      }
+      const c = state.dash.checkins.find((x) => x.habit_id === h.id && x.day === day);
+      if (c?.status !== 'done') return logDone(h.id, day);
+      await api('POST', '/api/checkins/undo', { habit_id: h.id, day, today: localToday() });
+      await refresh();
+      toast(`Undone for ${dayName(day)}.`, { label: 'Redo', run: () => logDone(h.id, day) });
     },
     'open-amount'(el) {
       state.panel = { type: 'amount', habitId: Number(el.dataset.habit), where: el.dataset.where || 'card' };
@@ -1997,10 +2023,10 @@
   }
 
   // Would adding `delta` to this goal finish it? Weekly miles tick on every tap.
-  function amountHaptic(habitId, delta) {
+  function amountHaptic(habitId, delta, day) {
     const h = state.dash?.habits.find((x) => x.id === habitId);
     if (!h || !(delta > 0)) return;
-    const have = weekly(h) ? weekTotal(h) : amountOn(h, state.dash.today);
+    const have = weekly(h) ? weekTotal(h) : amountOn(h, day || state.dash.today);
     const target = weekly(h) ? weekTarget(h) : h.daily_amount;
     if (weekly(h) || (have < target && have + delta >= target)) haptic();
   }
@@ -2009,7 +2035,7 @@
     const f = ev.target.closest('form[data-form]');
     if (!f) return;
     ev.preventDefault();
-    if (f.dataset.form === 'amount') amountHaptic(Number(f.dataset.habit), Number(f.amount.value));
+    if (f.dataset.form === 'amount') amountHaptic(Number(f.dataset.habit), Number(f.amount.value), f.dataset.day);
     const btn = f.querySelector('[type=submit]');
     if (btn) btn.disabled = true;
     guarded(() => forms[f.dataset.form](f)).finally(() => {
@@ -2021,6 +2047,11 @@
     const el = ev.target.closest('[data-action]');
     if (!el || el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.disabled) return;
     if (el.dataset.action === 'log-done') haptic();
+    else if (el.dataset.action === 'tap-day') {
+      const h = state.dash?.habits.find((x) => x.id === Number(el.dataset.habit));
+      const logged = state.dash?.checkins.some((c) => c.habit_id === h?.id && c.day === el.dataset.day && c.status === 'done');
+      if (h && !tracked(h) && !logged) haptic();
+    }
     else if (el.dataset.action === 'add-amount') amountHaptic(Number(el.dataset.habit), Number(el.dataset.delta));
     el.disabled = true; // no double taps
     guarded(() => actions[el.dataset.action](el)).finally(() => {

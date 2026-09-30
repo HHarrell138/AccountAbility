@@ -67,8 +67,9 @@ test('two people make a pact and hold each other accountable', async (t) => {
   // Flip it to done; only one feed entry should remain for today.
   assert.equal((await hank('POST', '/api/checkins', { habit_id: habit.id, status: 'done', today })).status, 200);
 
-  // No backfilling beyond yesterday, and not before the habit existed.
-  assert.equal((await hank('POST', '/api/checkins', { habit_id: habit.id, status: 'done', day: L.addDays(today, -3), today })).status, 400);
+  // No backfilling into a closed week, the future, or before the habit existed.
+  assert.equal((await hank('POST', '/api/checkins', { habit_id: habit.id, status: 'done', day: L.addDays(L.weekStart(today), -2), today })).status, 400);
+  assert.equal((await hank('POST', '/api/checkins', { habit_id: habit.id, status: 'done', day: L.addDays(today, 1), today })).status, 400);
   assert.equal((await hank('POST', '/api/checkins', { habit_id: habit.id, status: 'done', day: yesterday, today })).status, 400);
 
   // Jake nudges and cheers; he can't nudge himself.

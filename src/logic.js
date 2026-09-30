@@ -194,6 +194,14 @@ function pairStreak(memberIds, habits, checkins, today, sinceDay, amounts = []) 
   };
 }
 
+// Which days you can still log: today, any earlier day this week, and
+// yesterday (so Monday can fix Sunday). Anything but today is marked late.
+// Earlier weeks are closed; their streak is already scored.
+function canLog(day, today) {
+  if (!isValidDay(day) || day > today) return false;
+  return day >= weekStart(today) || day === addDays(today, -1);
+}
+
 // ---------- the weekly recap ----------
 //
 // How one week went for the pair, goal by goal: each shared goal's combined
@@ -232,6 +240,7 @@ const api = {
   nextTier,
   pairStreak,
   weekRecap,
+  canLog,
 };
 
 // Shared with the browser preview build (public/demo.js).

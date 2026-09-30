@@ -17,7 +17,7 @@ Most habit trackers are either solo (easy to lie to yourself) or social (perform
 | **Log once, counts everywhere** | In a pact with your brother and another with a friend, and both have water? One tap logs it in both, each against its own target. Amount goals link by what they count (oz, miles), wake-up links on its own, and anything else has to have the same name. |
 | **Misses need a reason** | You can't log a miss without saying what got in the way, and your partner sees it. A logged miss can't be undone. |
 | **Shared pair streak** | Scored weekly as one combined bar that moves every time either of you logs: each goal earns credit as you go (3 of 4 workouts is 75% of it, a weekly run counts its miles), each of you fills half, so one person doing everything is only 50%. 70%+ keeps it alive (blue), 100% makes it green, three 100% weeks in a row make it gold. A 70-99% week drops it a level; under 70% breaks it. If you slack, you break it for them too. |
-| **No rewriting history** | You can log today or yesterday, and yesterday is marked *late*. Nothing older. |
+| **No rewriting history** | Tap any of your days this week (or yesterday) to log it; anything but today is marked *late* for your partner to see. Earlier weeks are closed. |
 | **Quitting is visible** | Dropping a goal shows up in the feed, and that week still counts. Ending a shared goal ends it for both of you. |
 | **Nudge / Cheer** | One tap to call your partner out or hype them up. |
 | **Notifications** | On the home-screen app: a buzz when your partner nudges, cheers, proposes a goal or checks in, and an evening reminder (your time zone, your time) only if goals are still open. |

@@ -297,7 +297,7 @@ function createApp({
     if (!e) return; // rolled back, or replaced already
     const others = memberIds(e.partnership_id).filter((id) => id !== e.actor_id);
     const optedIn = (ids) => ids.filter((id) => q('SELECT notify_partner FROM users WHERE id = ?').get(id)?.notify_partner);
-    const late = e.kind.endsWith('_late') ? ' (for yesterday)' : '';
+    const late = e.kind.endsWith('_late') && e.day ? ` (for ${new Date(`${e.day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })})` : '';
     const say = {
       nudge: [[e.target_id], `${e.actor} nudged you`, e.message || (e.habit ? `About ${e.habit}` : e.pact)],
       cheer: [[e.target_id], `${e.actor} cheered you on`, e.message || (e.habit ? `For ${e.habit}` : e.pact)],
@@ -1015,8 +1015,9 @@ function createApp({
     const today = clientToday(body.today);
     const day = body.day === undefined ? today : body.day;
     if (!L.isValidDay(day)) fail(400, 'day must be YYYY-MM-DD');
-    // No quiet rewriting of history: today, or yesterday (flagged late). That's it.
-    if (day !== today && day !== L.addDays(today, -1)) fail(400, 'You can only check in for today or yesterday');
+    // No quiet rewriting of history: this week (or yesterday), and anything
+    // but today is flagged late for your partner to see.
+    if (!L.canLog(day, today)) fail(400, 'You can only log days this week');
     if (day < h.created_day) fail(400, 'That habit did not exist yet');
     const status = body.status;
     if (status !== 'done' && status !== 'missed') fail(400, 'status must be done or missed');
@@ -1062,7 +1063,7 @@ function createApp({
 
   // Undo an accidental Done. Only Done: a logged miss (and its reason) stays.
   // Log as you go: add (or, with a negative delta, take back) an amount for
-  // today or yesterday. Crossing the daily amount writes Done; dropping back
+  // any day this week (see L.canLog). Crossing the daily amount writes Done; dropping back
   // under it removes that Done.
   route('POST', '/api/amounts', ({ user, body }) => {
     const h = ownHabit(int(body.habit_id, 'habit_id', 1, Number.MAX_SAFE_INTEGER), user.id);
@@ -1070,7 +1071,7 @@ function createApp({
     if (h.archived_day) fail(400, 'That habit is archived');
     const today = clientToday(body.today);
     const day = body.day === undefined ? today : body.day;
-    if (day !== today && day !== L.addDays(today, -1)) fail(400, 'You can only log today or yesterday');
+    if (!L.canLog(day, today)) fail(400, 'You can only log days this week');
     if (day < h.created_day) fail(400, 'That habit did not exist yet');
     // reset: back to 0 for that day, here and in your linked pacts.
     const reset = body.reset === true;
@@ -1137,7 +1138,7 @@ function createApp({
     const h = ownHabit(int(body.habit_id, 'habit_id', 1, Number.MAX_SAFE_INTEGER), user.id);
     const today = clientToday(body.today);
     const day = body.day === undefined ? today : body.day;
-    if (day !== today && day !== L.addDays(today, -1)) fail(400, 'You can only undo today or yesterday');
+    if (!L.canLog(day, today)) fail(400, 'You can only change days this week');
     const c = q('SELECT * FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day);
     if (!c) fail(404, 'Nothing to undo');
     if (c.status !== 'done') fail(400, 'A logged miss stays. Log Done instead if you made it up.');

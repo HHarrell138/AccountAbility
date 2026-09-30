@@ -144,3 +144,15 @@ test('weekRecap: each goal combined, misses with reasons', () => {
   assert.deepEqual(r.misses, [{ habit_id: 2, user_id: 2, day: day(5), note: 'Double shift' }]);
   assert.equal(r.pct, (1 + (0.75 + 0.3) / 2) / 2);
 });
+
+test('canLog: any day this week, plus yesterday; never the future or a closed week', () => {
+  const thu = '2026-10-01'; // week of Mon 9/28
+  assert.ok(L.canLog(thu, thu));
+  assert.ok(L.canLog('2026-09-28', thu)); // Monday, same week
+  assert.ok(!L.canLog('2026-09-27', thu)); // last Sunday: closed
+  assert.ok(!L.canLog('2026-10-02', thu)); // tomorrow
+  const mon = '2026-10-05';
+  assert.ok(L.canLog('2026-10-04', mon)); // Monday can still fix Sunday
+  assert.ok(!L.canLog('2026-10-03', mon));
+  assert.ok(!L.canLog('junk', mon));
+});

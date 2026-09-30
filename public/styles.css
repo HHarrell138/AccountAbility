@@ -498,6 +498,10 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
     var(--bad-soft);
 }
 .dot.today { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+/* Your own days this week are buttons. */
+button.dot { display: block; padding: 0; border: 0; font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button.dot:active { transform: scale(0.88); }
+button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .dot.off { opacity: 0.35; }
 
 .tick {
