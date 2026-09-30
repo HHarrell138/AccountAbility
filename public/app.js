@@ -204,6 +204,7 @@
 
   function render() {
     if (!state.user) app.innerHTML = authView();
+    else if (state.view === 'settings') app.innerHTML = settingsView();
     else if (!state.pid || !state.dash) app.innerHTML = onboardView();
     else app.innerHTML = dashView();
     const focus = app.querySelector('[data-autofocus]');
@@ -457,15 +458,13 @@
           : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
              <div class="pacts-foot">
                <button class="link" data-action="edit-pacts">Edit pacts</button>
-               ${window.AA_DEMO ? '' : `<button class="link" data-action="toggle-account">Account</button>
-               <button class="link quiet" data-action="logout">Log out</button>`}
-             </div>
-             ${state.accountOpen ? accountPanel() : ''}`}
+               ${window.AA_DEMO ? '' : `<button class="link" data-action="open-settings">Account settings</button>`}
+             </div>`}
       </section>`;
   }
 
   // Turn notifications on for this phone, and pick what buzzes you.
-  function notificationsBlock() {
+  function notificationsBody() {
     const partner = state.dash.members.find((m) => !isMe(m.id));
     const pname = partner ? esc(partner.name) : 'your partner';
     let body;
@@ -497,7 +496,7 @@
           <button class="link quiet" data-action="push-off">Turn off on this phone</button>
         </div>`;
     }
-    return `<div class="account-block"><p class="eyebrow">Notifications</p>${body}</div>`;
+    return body;
   }
 
   // A one-time nudge on the dashboard to turn notifications on.
@@ -518,38 +517,64 @@
       </section>`;
   }
 
-  // Your password, and a reset code for a partner who's locked out.
-  function accountPanel() {
-    const partners = state.dash.members.filter((m) => !isMe(m.id));
+  // Account settings: its own page, from the pacts menu. Notifications,
+  // email, password, and a reset code for a partner who's locked out.
+  function settingsView() {
     const code = state.resetCode;
+    // Everyone you share a pact with, once each, with a pact to ask through.
+    const partners = [];
+    for (const p of state.partnerships) {
+      for (const m of p.members || []) {
+        if (m.id !== state.user.id && !partners.some((x) => x.id === m.id)) partners.push({ ...m, pid: p.id });
+      }
+    }
     return `
-      <div class="account">
-        ${notificationsBlock()}
-        <form data-form="email" class="account-block">
-          <p class="eyebrow">Your email</p>
-          ${state.user.email ? '' : `<p class="small muted">Add it to log in with it, and to reset your password by email if you forget it.</p>`}
-          <label for="acct-email" class="sr-only">Email</label>
-          <input id="acct-email" name="email" type="email" autocomplete="email" autocapitalize="none" maxlength="200" required value="${esc(state.user.email || '')}" placeholder="you@example.com">
-          <button class="btn small" type="submit">${state.user.email ? 'Update email' : 'Add email'}</button>
-        </form>
-        <form data-form="password" class="account-block">
-          <p class="eyebrow">Change your password</p>
-          <label for="pw-cur">Current password<input id="pw-cur" name="current" type="password" autocomplete="current-password" required></label>
-          <label for="pw-new">New password<input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="8" required></label>
-          <button class="btn small" type="submit">Save password</button>
-        </form>
-        ${partners
-          .map((m) => `
-            <div class="account-block">
-              <p class="eyebrow">${esc(m.name)} locked out?</p>
-              ${code && code.userId === m.id
-                ? `<p class="reset-code">${esc(code.code)}</p>
-                   <p class="small muted">Text this to ${esc(m.name)}. On the log in screen they tap Forgot your password? and enter it. It works once, for 24 hours.</p>`
-                : `<p class="small muted">Make a one-time code ${esc(m.name)} can use to set a new password. They'll see that you made it.</p>
-                   <button class="btn small" data-action="reset-code" data-user="${m.id}">Make a reset code</button>`}
-            </div>`)
-          .join('')}
-      </div>`;
+      <header class="settings-top">
+        <button class="back" data-action="close-settings">${uiIcon('chevron', 'back-chev')}Back</button>
+      </header>
+      <h1 class="title">Account settings</h1>
+      <p class="lede">${esc(state.user.name)} · ${esc(state.user.email || state.user.username)}</p>
+
+      <section class="card settings-card">
+        <h2 class="card-title">Notifications</h2>
+        ${notificationsBody()}
+      </section>
+
+      <form class="card settings-card" data-form="email">
+        <h2 class="card-title">Email</h2>
+        <p class="small muted">${state.user.email ? 'You log in with this, and a forgotten-password code comes here.' : 'Add your email to log in with it, and to reset your password by email if you forget it.'}</p>
+        <label for="acct-email" class="sr-only">Email</label>
+        <input id="acct-email" name="email" type="email" autocomplete="email" autocapitalize="none" maxlength="200" required value="${esc(state.user.email || '')}" placeholder="you@example.com">
+        <button class="btn" type="submit">${state.user.email ? 'Update email' : 'Add email'}</button>
+      </form>
+
+      <form class="card settings-card" data-form="password">
+        <h2 class="card-title">Password</h2>
+        <label for="pw-cur">Current password<input id="pw-cur" name="current" type="password" autocomplete="current-password" required></label>
+        <label for="pw-new">New password<input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button class="btn" type="submit">Change password</button>
+      </form>
+
+      ${partners.length
+        ? `<section class="card settings-card">
+            <h2 class="card-title">Partner locked out?</h2>
+            <p class="small muted">Make a one-time code they can use to set a new password. They'll see that you made it.</p>
+            ${partners
+              .map((m) => `
+                <div class="partner-reset">
+                  ${avatar(m)}
+                  <span class="partner-reset-name">${esc(m.name)}</span>
+                  ${code && code.userId === m.id ? '' : `<button class="btn small" data-action="reset-code" data-user="${m.id}" data-pid="${m.pid}">Make a code</button>`}
+                  ${code && code.userId === m.id
+                    ? `<div class="partner-reset-code"><p class="reset-code">${esc(code.code)}</p>
+                       <p class="small muted">Text this to ${esc(m.name)}. On the log in screen they tap Forgot your password? and enter it. It works once, for 24 hours.</p></div>`
+                    : ''}
+                </div>`)
+              .join('')}
+          </section>`
+        : ''}
+
+      <button class="btn wide" data-action="logout">Log out</button>`;
   }
 
   // Pacts you left or deleted in the last 24 hours, each with Undo.
@@ -1530,8 +1555,7 @@
     },
     async password(f) {
       await api('POST', '/api/password', { current: f.current.value, password: f.password.value });
-      state.accountOpen = false;
-      render();
+      f.reset();
       toast('Password changed. Other devices are logged out.');
     },
     async 'create-pact'(f) {
@@ -1679,6 +1703,17 @@
     toast('Notifications on. Try Send a test.');
   }
 
+  function closeSettings() {
+    state.view = null;
+    state.resetCode = null;
+    render();
+    window.scrollTo(0, 0);
+  }
+  // The phone's back gesture leaves settings too.
+  window.addEventListener('popstate', () => {
+    if (state.view === 'settings') closeSettings();
+  });
+
   // Undo a leave or delete, and take you back into that pact.
   async function undoLeave(id) {
     const { partnership } = await api('POST', `/api/leaves/${id}/undo`, {});
@@ -1703,7 +1738,7 @@
     },
     async logout() {
       await api('POST', '/api/logout', {});
-      Object.assign(state, { user: null, partnerships: [], pid: null, dash: null, panel: null });
+      Object.assign(state, { user: null, partnerships: [], pid: null, dash: null, panel: null, view: null });
       render();
     },
     async 'log-done'(el) {
@@ -1894,17 +1929,22 @@
       render();
     },
     async 'push-prompt-on'() {
-      state.pactsOpen = true;
-      state.accountOpen = true;
       await enablePush();
     },
-    'toggle-account'() {
-      state.accountOpen = !state.accountOpen;
+    'open-settings'() {
+      state.view = 'settings';
+      state.pactsOpen = false;
       state.resetCode = null;
+      history.pushState({ view: 'settings' }, '');
       render();
+      window.scrollTo(0, 0);
+    },
+    'close-settings'() {
+      if (history.state?.view === 'settings') history.back(); // popstate renders
+      else closeSettings();
     },
     async 'reset-code'(el) {
-      const { code } = await api('POST', `/api/partnerships/${state.pid}/reset-code`, { user_id: Number(el.dataset.user) });
+      const { code } = await api('POST', `/api/partnerships/${el.dataset.pid}/reset-code`, { user_id: Number(el.dataset.user) });
       state.resetCode = { userId: Number(el.dataset.user), code };
       render();
     },
@@ -1934,7 +1974,6 @@
       await undoLeave(Number(el.dataset.leave));
     },
     'toggle-pacts'() {
-      state.accountOpen = false;
       state.resetCode = null;
       state.pactsEdit = false;
       state.pactConfirm = null;
