@@ -775,3 +775,9 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .pact-rename input { margin-top: 6px; }
 .renaming .pact-confirm { display: flex; gap: 8px; grid-column: 2 / -1; }
 .renaming .pact-confirm .btn.primary { background: var(--you); color: var(--you-ink); border: 0; }
+
+/* ---------- your plan for the days ---------- */
+
+.plan-grid { display: grid; gap: 8px; margin: 10px 0 12px; }
+.plan-day { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr); align-items: center; gap: 10px; margin: 0; font-weight: 700; font-size: 0.9rem; }
+.plan-day input { margin: 0; padding: 9px 12px; }

@@ -187,6 +187,9 @@ function migrate(db) {
   // Where the goal sits in its owner's list. 0 = never reordered: it goes after
   // the ordered ones, oldest first.
   if (!habitCols.includes('position')) db.exec('ALTER TABLE habits ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
+  // Your own plan for a goal's days, e.g. {"mon":"Push","tue":"Legs"}. Only
+  // you see it; your partner plans their own.
+  if (!habitCols.includes('plan')) db.exec("ALTER TABLE habits ADD COLUMN plan TEXT NOT NULL DEFAULT ''");
   // Your own name for a pact ("King"), which only you see. NULL = the name
   // it was started with.
   const memberCols = db.prepare('PRAGMA table_info(memberships)').all().map((c) => c.name);

@@ -868,3 +868,36 @@ test('rename a pact: only for you', async (t) => {
   assert.deepEqual(await nameFor(hank), ['Hank & King', 'Hank & King']);
   assert.equal((await hank('PATCH', `/api/partnerships/${pact.id}`, { name: 'x'.repeat(61) })).status, 400);
 });
+
+test('plan your days: private to you, carried to linked goals', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  const kona = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', email: 'king@example.com', password: 'password123' });
+  await kona('POST', '/api/signup', { name: 'Kona', email: 'kona@example.com', password: 'password123' });
+  const a = (await hank('POST', '/api/partnerships', { today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: a.invite_code });
+  const b = (await hank('POST', '/api/partnerships', { today })).data.partnership;
+  await kona('POST', '/api/partnerships/join', { code: b.invite_code });
+  const g = (await hank('POST', '/api/goals', { partnership_id: a.id, title: 'Work out', icon: 'workout', target_per_week: 4, today })).data.goal;
+  await king('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+  const other = (await hank('POST', '/api/habits', { partnership_id: b.id, title: 'Work out', icon: 'workout', target_per_week: 4, today })).data.habit;
+  const mine = (await hank('GET', `/api/partnerships/${a.id}/dashboard?today=${today}`)).data.habits.find((h) => h.goal_id === g.id && h.user_id === other.user_id);
+
+  assert.equal((await hank('PATCH', `/api/habits/${mine.id}`, { plan: { mon: ' Push ', tue: 'Legs', wed: '', sun: 'x'.repeat(41) } })).status, 400);
+  assert.equal((await hank('PATCH', `/api/habits/${mine.id}`, { plan: { fri: 'Arms', mon: ' Push ', tue: 'Legs', wed: '' } })).status, 200);
+  const plan = (who, pid, id) => who('GET', `/api/partnerships/${pid}/dashboard?today=${today}`).then((r) => r.data.habits.find((h) => h.id === id).plan);
+  assert.equal(await plan(hank, a.id, mine.id), '{"mon":"Push","tue":"Legs","fri":"Arms"}');
+  assert.equal(await plan(hank, b.id, other.id), '{"mon":"Push","tue":"Legs","fri":"Arms"}'); // same workout in the other pact
+  assert.equal(await plan(king, a.id, mine.id), ''); // King doesn't see it
+  assert.equal((await hank('PATCH', `/api/habits/${mine.id}`, { plan: { mon: 'Nope', bogus: 'x' } })).status, 400);
+  // Not for amount goals.
+  const water = (await hank('POST', '/api/habits', { partnership_id: a.id, title: 'Water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 8, today })).data.habit;
+  assert.equal((await hank('PATCH', `/api/habits/${water.id}`, { plan: { mon: 'x' } })).status, 400);
+});

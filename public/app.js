@@ -598,7 +598,7 @@
     const sched = parseSched(h.schedule);
     const time = sched && sched[dayKey(day)];
     const off = sched && !time;
-    const title = time ? `Wake up by ${clockTime(time)}` : h.title;
+    const title = titleOn(h, day);
     const c = d.checkins.find((x) => x.habit_id === h.id && x.day === day);
     const amt = tracked(h) ? amountOn(h, day) : 0;
 
@@ -1112,6 +1112,7 @@
         ${subline(h, w, person)}
         ${tracked(h) ? amountRow(h) : ''}
         ${schedRow(h)}
+        ${planRow(h)}
         ${personal !== undefined ? numberRow(h, personal) : ''}
         ${missOpen ? missPanel(h) : ''}
       </div>`;
@@ -1434,9 +1435,56 @@
 
   // What to call a goal today: a scheduled wake-up shows today's time.
   function todayTitle(h) {
+    return titleOn(h, state.dash.today);
+  }
+
+  // A goal's name on a given day: the wake-up time, or your plan for the day
+  // ("Work out · Legs").
+  function titleOn(h, day) {
     const sched = parseSched(h.schedule);
-    const t = sched && sched[dayKey(state.dash.today)];
-    return t ? `Wake up by ${clockTime(t)}` : h.title;
+    const t = sched && sched[dayKey(day)];
+    if (t) return `Wake up by ${clockTime(t)}`;
+    const planned = parsePlan(h)[dayKey(day)];
+    return planned ? `${h.title} · ${planned}` : h.title;
+  }
+
+  function parsePlan(h) {
+    try {
+      return h.plan ? JSON.parse(h.plan) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  // Your plan under your own workout row ("Mon Push · Tue Legs"), with Edit
+  // plan. Your partner never sees it.
+  function planRow(h) {
+    if (!isMe(h.user_id) || h.archived_day || tracked(h) || h.schedule) return '';
+    const plan = parsePlan(h);
+    // Offered on workouts; any goal that already has a plan keeps showing it.
+    if (h.icon !== 'workout' && !Object.keys(plan).length) return '';
+    if (state.panel?.type === 'edit-plan' && state.panel.habitId === h.id) {
+      return `
+        <form class="panel" data-form="edit-plan" data-habit="${h.id}">
+          <p class="small muted">Name what you're doing each day, like Push, Legs or Long run. Only you see this; your partner plans their own.</p>
+          <div class="plan-grid">
+            ${WEEK.map(([k, label]) => `
+              <label class="plan-day" for="plan-${h.id}-${k}"><span>${label}</span>
+                <input id="plan-${h.id}-${k}" name="p-${k}" maxlength="40" value="${esc(plan[k] || '')}" placeholder="Rest">
+              </label>`).join('')}
+          </div>
+          <div class="row">
+            <button class="btn primary" type="submit">Save plan</button>
+            <button class="btn" type="button" data-action="close-panel">Cancel</button>
+          </div>
+        </form>`;
+    }
+    const days = WEEK.filter(([k]) => plan[k]);
+    return `
+      <div class="row-sched plan-summary">
+        ${uiIcon('clock')}<span>${days.length ? days.map(([k, label]) => `${label} ${esc(plan[k])}`).join(' · ') : 'No plan for the days yet'}</span>
+        <button class="link" data-action="edit-plan" data-habit="${h.id}">${days.length ? 'Edit plan' : 'Plan your days'}</button>
+      </div>`;
   }
 
   // "7x a week", or the schedule when there is one.
@@ -1803,6 +1851,14 @@
       toast('Number saved.');
       await refresh();
     },
+    async 'edit-plan'(f) {
+      const plan = {};
+      for (const [k] of WEEK) plan[k] = f[`p-${k}`].value;
+      await api('PATCH', `/api/habits/${f.dataset.habit}`, { plan, today: localToday() });
+      state.panel = null;
+      toast('Plan saved. Only you see it.');
+      await refresh();
+    },
     async 'edit-sched'(f) {
       const schedule = readSched(f);
       if (!Object.keys(schedule).length) throw new Error('Pick at least one day');
@@ -1935,6 +1991,10 @@
     },
     'sched-copy'(el) {
       schedCopy(el);
+    },
+    'edit-plan'(el) {
+      state.panel = { type: 'edit-plan', habitId: Number(el.dataset.habit) };
+      render();
     },
     'edit-sched'(el) {
       state.panel = { type: 'edit-sched', habitId: Number(el.dataset.habit) };

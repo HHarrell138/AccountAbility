@@ -367,6 +367,11 @@
     ['PATCH', /^\/api\/habits\/(\d+)$/, (b, q, m) => {
       const h = db.habits.find((x) => x.id === Number(m[1]) && x.user_id === ME);
       if (!h) fail(404, 'Habit not found');
+      if (b.plan !== undefined) {
+        const plan = {};
+        for (const d of DAYS) if (String(b.plan[d] || '').trim()) plan[d] = String(b.plan[d]).trim().slice(0, 40);
+        h.plan = Object.keys(plan).length ? JSON.stringify(plan) : '';
+      }
       if (b.step !== undefined) {
         const step = Number(b.step);
         if (!(h.daily_amount > 0)) fail(400, 'That goal is not logged by amount');

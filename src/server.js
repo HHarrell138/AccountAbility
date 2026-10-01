@@ -822,7 +822,9 @@ function createApp({
       members,
       habits: habits
         .filter((h) => !h.archived_day || h.archived_day > thisWeek)
-        .map((h) => (h.user_id === user.id && !h.archived_day ? { ...h, links: linkedHabits(h).map((x) => pactName(x.partnership_id, user.id)) } : h)),
+        .map((h) => (h.user_id === user.id
+          ? h.archived_day ? h : { ...h, links: linkedHabits(h).map((x) => pactName(x.partnership_id, user.id)) }
+          : { ...h, plan: '' })), // your partner's plan is theirs alone
       checkins: checkins.filter((c) => c.day >= recentFrom),
       amounts: q(
         `SELECT a.habit_id, a.day, a.amount FROM amounts a JOIN habits h ON h.id = a.habit_id
@@ -870,6 +872,22 @@ function createApp({
     const count = (k) => counts.find((c) => c.kind === k)?.n || 0;
     return { ...recap, current: isSunday, tier: streak?.tier || null, weeks: streak?.weeks || 0, nudges: count('nudge'), cheers: count('cheer') };
   });
+
+  // A plan: day -> a short label, days left out have none.
+  function parsePlan(value) {
+    if (value === null || value === '') return '';
+    if (typeof value !== 'object' || Array.isArray(value)) fail(400, 'plan must be an object of day: label');
+    const out = {};
+    for (const [day, label] of Object.entries(value)) {
+      if (!WEEKDAYS.includes(day)) fail(400, `Unknown day in plan: ${day}`);
+      const text = String(label ?? '').trim();
+      if (text.length > 40) fail(400, 'Keep each day under 40 characters');
+      if (text) out[day] = text;
+    }
+    const sorted = {};
+    for (const day of WEEKDAYS) if (out[day]) sorted[day] = out[day];
+    return Object.keys(sorted).length ? JSON.stringify(sorted) : '';
+  }
 
   // Optional per-day times, e.g. {"mon":"05:30","sat":"09:00"}. Days left out
   // are off. When set, the weekly target is the number of scheduled days.
@@ -988,6 +1006,13 @@ function createApp({
     }
     if (body.why !== undefined) {
       q('UPDATE habits SET why = ? WHERE id = ?').run(str(body.why, 'Why', { max: 200, required: false }), h.id);
+    }
+    // Your plan for the days ("Mon: Push"). Private, so no feed entry, and it
+    // carries over to the same goal in your other pacts.
+    if (body.plan !== undefined) {
+      if (h.daily_amount > 0 || h.schedule) fail(400, 'That goal is planned by amount or by times');
+      const plan = parsePlan(body.plan);
+      for (const x of [h, ...linkedHabits(h)]) q('UPDATE habits SET plan = ? WHERE id = ?').run(plan, x.id);
     }
     return { ok: true };
   });
