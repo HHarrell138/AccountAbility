@@ -1056,3 +1056,44 @@ test('challenges: a finish line, then the result for both of you', async (t) => 
   assert.deepEqual(dash.events.filter((e) => e.kind === 'challenge_done').map((e) => e.message), ['1 of 2', '2 of 2']);
   assert.equal(dash.goals.find((g) => g.id === goal.id), undefined); // ended
 });
+
+test('weight: yours, shared only if you say so; and the waiting-for-your-yes count', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const yesterday = L.addDays(today, -1);
+  const hank = client(base);
+  const king = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', email: 'king@example.com', password: 'password123' });
+  const a = (await hank('POST', '/api/partnerships', { name: 'A', today })).data.partnership;
+  const b = (await hank('POST', '/api/partnerships', { name: 'B', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: a.invite_code });
+  await king('POST', '/api/partnerships/join', { code: b.invite_code });
+
+  assert.equal((await hank('POST', '/api/weights', { lb: 20, today })).status, 400);
+  assert.equal((await hank('POST', '/api/weights', { lb: 183.25, day: L.addDays(today, -2), today })).status, 400);
+  assert.equal((await hank('POST', '/api/weights', { lb: 183.25, day: yesterday, today })).status, 200);
+  await hank('POST', '/api/weights', { lb: 182, today });
+  await hank('POST', '/api/weights', { lb: 181.6, today }); // replaces today's
+  const mine = (await hank('GET', `/api/partnerships/${a.id}/dashboard?today=${today}`)).data;
+  assert.deepEqual(mine.weights[mine.me], [{ day: yesterday, lb: 183.3 }, { day: today, lb: 181.6 }]);
+
+  // King can't see it until Hank shares it.
+  const hankId = mine.me;
+  assert.equal((await king('GET', `/api/partnerships/${a.id}/dashboard?today=${today}`)).data.weights[hankId], undefined);
+  assert.equal((await hank('PATCH', '/api/me', { share_weight: true })).data.user.share_weight, 1);
+  assert.equal((await king('GET', `/api/partnerships/${b.id}/dashboard?today=${today}`)).data.weights[hankId].length, 2);
+  await hank('POST', '/api/weights/delete', { day: yesterday });
+  assert.equal((await king('GET', `/api/partnerships/${a.id}/dashboard?today=${today}`)).data.weights[hankId].length, 1);
+
+  // Two goals waiting for Hank's yes in A, one in B; none for King (he sent them).
+  for (const [pid, title] of [[a.id, 'Read'], [a.id, 'Pray'], [b.id, 'Walk']]) {
+    await king('POST', '/api/goals', { partnership_id: pid, title, target_per_week: 3, today });
+  }
+  const h = (await hank('GET', `/api/partnerships/${b.id}/dashboard?today=${today}`)).data;
+  assert.deepEqual(h.waiting, { [a.id]: 2, [b.id]: 1 });
+  assert.deepEqual((await king('GET', `/api/partnerships/${a.id}/dashboard?today=${today}`)).data.waiting, {});
+});

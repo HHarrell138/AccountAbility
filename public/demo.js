@@ -22,7 +22,7 @@
   }
   const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
-  const fresh = () => ({ me: null, loggedIn: false, partnership: null, members: [], goals: [], habits: [], checkins: [], amounts: [], events: [], lastSeen: 0, nextId: 1 });
+  const fresh = () => ({ me: null, loggedIn: false, partnership: null, members: [], goals: [], habits: [], checkins: [], amounts: [], events: [], weights: [], lastSeen: 0, nextId: 1 });
 
   let db;
   try {
@@ -214,7 +214,37 @@
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const inviteCode = () => Array.from({ length: 6 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join('');
 
+  const weightsOf = (uid) => (db.weights || []).filter((w) => w.user_id === uid).map(({ day, lb }) => ({ day, lb })).sort((a, b) => (a.day < b.day ? -1 : 1));
+  // King shares his: about two months of weigh-ins, trending down a bit.
+  function kingWeights(today) {
+    const out = [];
+    for (let i = 60; i >= 0; i -= 1) {
+      if (i % 3 === 1) continue;
+      out.push({ day: L.addDays(today, -i), lb: Math.round((178 - (60 - i) * 0.06 + Math.sin(i * 1.7) * 0.8) * 10) / 10 });
+    }
+    return out;
+  }
+
   const routes = [
+    ['PATCH', /^\/api\/me$/, (b) => {
+      if (b.share_weight !== undefined) db.me.share_weight = b.share_weight ? 1 : 0;
+      if (b.notify_partner !== undefined) db.me.notify_partner = b.notify_partner ? 1 : 0;
+      if (b.remind_at !== undefined) db.me.remind_at = b.remind_at;
+      return { user: db.me };
+    }],
+    ['POST', /^\/api\/weights$/, (b) => {
+      const day = b.day || b.today;
+      if (!L.canLog(day, b.today)) fail(400, 'You can only log today or yesterday');
+      const lb = Number(b.lb);
+      if (!Number.isFinite(lb) || lb < 50 || lb > 800) fail(400, 'Enter your weight in pounds');
+      db.weights = (db.weights || []).filter((w) => !(w.user_id === ME && w.day === day));
+      db.weights.push({ user_id: ME, day, lb: Math.round(lb * 10) / 10 });
+      return { ok: true };
+    }],
+    ['POST', /^\/api\/weights\/delete$/, (b) => {
+      db.weights = (db.weights || []).filter((w) => !(w.user_id === ME && w.day === b.day));
+      return { ok: true };
+    }],
     ['GET', /^\/api\/me$/, () => {
       if (!db.loggedIn) fail(401, 'Log in first');
       const p = db.partnership;
@@ -327,6 +357,8 @@
         streak: ids.length >= 2 ? L.pairStreak(ids, shared, db.checkins, today, p.created_day, db.amounts) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
         events,
         last_seen_event_id: lastSeen,
+        waiting: { [p.id]: db.goals.filter((g) => g.status === 'proposed' && g.proposed_by !== ME).length },
+        weights: { [ME]: weightsOf(ME), ...(db.members.includes(KING) ? { [KING]: kingWeights(today) } : {}) },
       };
     }],
     ['POST', /^\/api\/habits$/, (b) => {

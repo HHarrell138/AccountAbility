@@ -20,6 +20,7 @@
     sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     run: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"/>',
     prayer: '<path d="M12 3.5c-1.6 1.6-2.6 4-2.6 6.8v3.6l-3.2 3.5 2.2 3.1 3.6-3.4z"/><path d="M12 3.5c1.6 1.6 2.6 4 2.6 6.8v3.6l3.2 3.5-2.2 3.1-3.6-3.4z"/>',
+    weight: '<rect x="4" y="4" width="16" height="16" rx="4.5"/><path d="M8.5 10a5 5 0 0 1 7 0"/><path d="M12 10.2l1.3-1.8"/>',
     sober: '<path d="M7.5 3.5h9l-.6 5.2a3.9 3.9 0 0 1-7.8 0z"/><path d="M12 12.6v6.9M8.5 19.5h7"/><path d="M4 4l16 16"/>',
     wake: '<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2.5 1.5"/><path d="M4 6.5L7 4M20 6.5L17 4"/>',
   };
@@ -237,6 +238,7 @@
     else if (state.view === 'guide') app.innerHTML = guideView();
     else if (state.view === 'settings') app.innerHTML = settingsView();
     else if (state.view === 'day' && state.dash) app.innerHTML = dayView();
+    else if (state.view === 'weight' && state.dash) app.innerHTML = weightView();
     else if (!state.pid || !state.dash) app.innerHTML = onboardView();
     else app.innerHTML = dashView();
     const focus = app.querySelector('[data-autofocus]');
@@ -359,6 +361,7 @@
         </div>
         <button type="button" class="pair ${state.pactsOpen ? 'open' : ''}" data-action="toggle-pacts" aria-expanded="${!!state.pactsOpen}" aria-label="Your pacts">
           ${d.members.map(avatar).join('')}${uiIcon('chevron', 'chev')}
+          ${waitingTotal() ? `<span class="pair-badge" aria-label="${waitingTotal()} waiting for your yes">${waitingTotal()}</span>` : ''}
         </button>
       </header>
       ${state.pactsOpen ? pactsMenu() : ''}
@@ -387,6 +390,8 @@
         <p class="section-note">Just yours. ${partnerName} can see them, but they don't count toward the streak.</p>
         ${state.reorder === 'side' ? reorderList() : `${addForm('side', false, partnerName)}${sideMine.map((h) => sideCard(h)).join('')}`}
       </section>
+
+      ${weightCard()}
 
       ${partners
         .map((p) => {
@@ -454,6 +459,10 @@
 
   // Tapping your avatars at the top: every pact you're in, and a way to start
   // or join another.
+  // Goals waiting for your yes, in every pact (the badge on your circle).
+  const waitingIn = (pid) => state.dash?.waiting?.[pid] || 0;
+  const waitingTotal = () => Object.values(state.dash?.waiting || {}).reduce((a, b) => a + b, 0);
+
   function pactsMenu() {
     // Pacts with a partner first, then ones still waiting for someone to
     // join; alphabetical within each.
@@ -469,7 +478,7 @@
         if (!state.pactsEdit) {
           return `
           <button type="button" class="pact-row ${current ? 'current' : ''}" data-action="go-pact" data-pid="${p.id}" aria-current="${current}">
-            ${avs}${text}${current ? uiIcon('done', 'pact-check') : ''}
+            ${avs}${text}${waitingIn(p.id) ? `<span class="badge" aria-label="${waitingIn(p.id)} waiting for your yes">${waitingIn(p.id)}</span>` : ''}${current ? uiIcon('done', 'pact-check') : ''}
           </button>`;
         }
         // Edit: leave a pact someone else is in, delete one that's just you.
@@ -694,6 +703,10 @@
         'The card counts it: <strong>Day 12 of 30</strong>. On a shared goal, Day 1 is the day you both agree.',
         'When it\'s over, it wraps itself up and you both see the result, like <strong>28 of 30 days</strong>. Miss the last day\'s log? You still get the next day to log it as yesterday.',
       ])}
+      ${section(iconSvg('weight'), 'Weight', [
+        'Log it under <strong>Weight</strong> on your dashboard: one a day, and a second one that day replaces it. Tap the card for your line over 30 days, 90 days or all time.',
+        "<strong>It's just yours</strong> unless you turn on <strong>Let my partners see my weight</strong>. It's not a goal and doesn't touch the streak.",
+      ])}
       ${section(uiIcon('clock'), 'Days and the week', [
         '<strong>Tap any circle</strong> to see that whole day: every goal, how close you got, and how your partner did.',
         'Today and yesterday can be logged there. Earlier days are just to look at, and later days show what\'s coming up.',
@@ -900,13 +913,13 @@
   // checklist: each row has the same one-tap check as the goal cards.
   // A goal whose weekly target is already hit doesn't count against today
   // unless you do it anyway.
-  function progressCard() {
+  // One person's goals today in this pact, and where each stands.
+  function dayStatus(userId) {
     const d = state.dash;
-    const scored = new Map((d.week.members[d.me]?.habits || []).map((x) => [x.habit_id, x]));
+    const scored = new Map((d.week.members[userId]?.habits || []).map((x) => [x.habit_id, x]));
     const goals = d.habits
-      .filter((h) => isMe(h.user_id) && !h.archived_day && !challengeOver(h) && h.created_day <= d.today)
+      .filter((h) => h.user_id === userId && !h.archived_day && !challengeOver(h) && h.created_day <= d.today)
       .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(a, b)); // shared first, each in your order
-
     const items = goals.map((h) => {
       const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
       const sched = parseSched(h.schedule);
@@ -919,7 +932,23 @@
     const due = items.filter((i) => i.status !== 'rest' && i.status !== 'off' && i.status !== 'week');
     const done = due.filter((i) => i.status === 'done').length;
     const missed = due.filter((i) => i.status === 'missed').length;
-    const left = due.length - done - missed;
+    return { goals, items, due, done, missed, left: due.length - done - missed };
+  }
+
+  // A bar of one segment per goal due today; amount goals fill partway.
+  function daySegments(due) {
+    const d = state.dash;
+    return due
+      .map((i) => {
+        const part = i.status === 'todo' && tracked(i.h) ? Math.min(100, Math.round((amountOn(i.h, d.today) / i.h.daily_amount) * 100)) : 0;
+        return `<span class="seg ${i.status === 'done' ? 'done' : i.status === 'missed' ? 'missed' : ''}"${part ? ` style="--pct:${part}%"` : ''}></span>`;
+      })
+      .join('');
+  }
+
+  function progressCard() {
+    const d = state.dash;
+    const { goals, items, due, done, missed, left } = dayStatus(d.me);
 
     let meta;
     if (!goals.length) meta = 'No goals yet';
@@ -927,13 +956,23 @@
     else if (left === 0 && missed === 0) meta = '<strong>All done</strong> for today';
     else meta = [left ? `<strong>${left} left</strong>` : '', missed ? `${missed} missed` : ''].filter(Boolean).join(' · ');
 
-    const segments = due
-      .map((i) => {
-        const part = i.status === 'todo' && tracked(i.h) ? Math.min(100, Math.round((amountOn(i.h, d.today) / i.h.daily_amount) * 100)) : 0;
-        return `<span class="seg ${i.status === 'done' ? 'done' : i.status === 'missed' ? 'missed' : ''}"${part ? ` style="--pct:${part}%"` : ''}></span>`;
+    // Everyone's day at a glance: you first, then your partner.
+    const people = [...d.members].sort((a, b) => (isMe(a.id) ? -1 : isMe(b.id) ? 1 : 0));
+    const board = people
+      .map((m) => {
+        const st = isMe(m.id) ? { due, done, missed, left } : dayStatus(m.id);
+        const all = st.due.length && st.done === st.due.length;
+        return `
+          <div class="board-row ${whoClass(m.id)}">
+            ${avatar(m)}
+            <span class="board-name">${isMe(m.id) ? 'You' : esc(m.name)}</span>
+            ${st.due.length
+              ? `<div class="segments" role="img" aria-label="${isMe(m.id) ? 'You' : esc(m.name)}: ${st.done} of ${st.due.length} done today">${daySegments(st.due)}</div>
+                 <span class="board-num ${all ? 'all' : ''}">${st.done}<span>/${st.due.length}</span></span>`
+              : `<span class="board-none">Nothing due today</span>`}
+          </div>`;
       })
       .join('');
-
     const rows = items
       .map(({ h, status }) => {
         let control;
@@ -975,13 +1014,10 @@
     return `
       <section class="card progress-card" aria-label="Your progress today">
         <div class="progress-head">
-          <div>
-            <p class="eyebrow">Today</p>
-            <div class="progress-num">${due.length ? `${done}<span>/${due.length}</span>` : '–'}</div>
-          </div>
+          <p class="eyebrow">Today</p>
           <p class="progress-meta">${meta}</p>
         </div>
-        ${due.length ? `<div class="segments" role="img" aria-label="${done} of ${due.length} done today">${segments}</div>` : ''}
+        <div class="board">${board}</div>
         ${rows ? `<div class="today-list">${rows}</div>` : '<p class="small muted">Agree on a shared goal or add a side goal below, and your day shows up here.</p>'}
       </section>`;
   }
@@ -1741,6 +1777,183 @@
     return sched ? schedSummary(sched) : x.target_per_week === 7 ? 'Every day' : `${x.target_per_week}x a week`;
   };
 
+  // ---------- weight ----------
+  // One entry a day, in pounds. Yours, across every pact; partners see it
+  // only if you share it.
+
+  const fmtLb = (n) => `${Number(n).toFixed(1).replace(/\.0$/, '')}`;
+  const shortDate = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const weightsOf = (id) => state.dash.weights?.[id] || [];
+
+  // "−3.2 lb since Sep 4", from the first entry in view to the last.
+  function weightChange(entries) {
+    if (entries.length < 2) return '';
+    const diff = Math.round((entries[entries.length - 1].lb - entries[0].lb) * 10) / 10;
+    const sign = diff > 0 ? '+' : diff < 0 ? '−' : '±';
+    return `${sign}${fmtLb(Math.abs(diff))} lb since ${shortDate(entries[0].day)}`;
+  }
+
+  // A line over time (days, not entries, along the bottom). `big` adds the
+  // axes and the tap-for-a-value layer; small is the card's sparkline.
+  function weightChart(entries, who, big) {
+    if (!entries.length) return '';
+    const W = 320;
+    const H = big ? 170 : 56;
+    const pad = big ? { l: 34, r: 10, t: 12, b: 22 } : { l: 4, r: 4, t: 6, b: 6 };
+    const first = entries[0].day;
+    const span = Math.max(1, daysBetween(first, entries[entries.length - 1].day));
+    const lbs = entries.map((e) => e.lb);
+    let lo = Math.min(...lbs);
+    let hi = Math.max(...lbs);
+    const gap = Math.max(2, (hi - lo) * 0.15);
+    lo = Math.floor(lo - gap);
+    hi = Math.ceil(hi + gap);
+    const x = (day) => pad.l + (entries.length === 1 ? 0.5 : daysBetween(first, day) / span) * (W - pad.l - pad.r);
+    const y = (lb) => pad.t + (1 - (lb - lo) / (hi - lo)) * (H - pad.t - pad.b);
+    const pts = entries.map((e) => [x(e.day), y(e.lb)]);
+    const line = pts.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join('');
+    let axes = '';
+    if (big) {
+      const ticks = [lo, Math.round((lo + hi) / 2), hi];
+      axes = ticks.map((t) => `<line class="wgrid" x1="${pad.l}" x2="${W - pad.r}" y1="${y(t)}" y2="${y(t)}"/><text class="wtick" x="${pad.l - 6}" y="${y(t) + 3.5}" text-anchor="end">${t}</text>`).join('')
+        + `<text class="wtick" x="${pad.l}" y="${H - 6}">${shortDate(first)}</text>`
+        + (entries.length > 1 ? `<text class="wtick" x="${W - pad.r}" y="${H - 6}" text-anchor="end">${shortDate(entries[entries.length - 1].day)}</text>` : '');
+    }
+    const last = pts[pts.length - 1];
+    const dots = big && entries.length <= 20 ? pts.map(([px, py]) => `<circle class="wdot" cx="${px}" cy="${py}" r="3"/>`).join('') : '';
+    const data = big ? ` data-points='${esc(JSON.stringify(entries.map((e, i) => [pts[i][0], pts[i][1], e.day, e.lb])))}'` : '';
+    return `
+      <div class="wchart ${who} ${big ? 'big' : ''}"${data}>
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weight over time, ${fmtLb(entries[0].lb)} to ${fmtLb(entries[entries.length - 1].lb)} lb">
+          ${axes}
+          <path class="wline" d="${line}"/>
+          ${dots}
+          <circle class="wlast" cx="${last[0]}" cy="${last[1]}" r="${big ? 4.5 : 3.5}"/>
+          ${big ? '<line class="wcross" y1="0" y2="0" hidden/><circle class="wfocus" r="5" hidden/>' : ''}
+        </svg>
+        ${big ? '<div class="wtip" hidden></div>' : ''}
+      </div>`;
+  }
+
+  // Tap or drag on the big chart: the nearest day's weight.
+  function weightHover(ev) {
+    const box = ev.target.closest?.('.wchart.big');
+    if (!box) return;
+    const svg = box.querySelector('svg');
+    const pts = JSON.parse(box.dataset.points);
+    const r = svg.getBoundingClientRect();
+    const vx = ((ev.clientX - r.left) / r.width) * 320;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(p[0] - vx) < Math.abs(best[0] - vx)) best = p;
+    const vb = svg.viewBox.baseVal;
+    const cross = svg.querySelector('.wcross');
+    const focus = svg.querySelector('.wfocus');
+    cross.setAttribute('x1', best[0]); cross.setAttribute('x2', best[0]);
+    cross.setAttribute('y1', 8); cross.setAttribute('y2', vb.height - 22);
+    focus.setAttribute('cx', best[0]); focus.setAttribute('cy', best[1]);
+    cross.removeAttribute('hidden');
+    focus.removeAttribute('hidden');
+    const tip = box.querySelector('.wtip');
+    tip.innerHTML = `<strong>${fmtLb(best[3])} lb</strong><span>${esc(shortDate(best[2]))}</span>`;
+    tip.hidden = false;
+    const px = (best[0] / 320) * r.width;
+    tip.style.left = `${Math.min(Math.max(px, 44), r.width - 44)}px`;
+  }
+
+  // The weigh-in box: today's entry, or a box to type it.
+  function weightForm() {
+    const d = state.dash;
+    const mine = weightsOf(d.me);
+    const todays = mine.find((e) => e.day === d.today);
+    if (todays && state.panel?.type !== 'weight') {
+      return `<div class="weight-today"><span>Today: <strong>${fmtLb(todays.lb)} lb</strong></span><button class="link" data-action="weight-edit">Change</button></div>`;
+    }
+    const last = mine[mine.length - 1];
+    return `
+      <form class="weight-form" data-form="weight">
+        <input name="lb" type="number" inputmode="decimal" step="0.1" min="50" max="800" placeholder="${last ? fmtLb(last.lb) : 'Weight'}" value="${todays ? fmtLb(todays.lb) : ''}" aria-label="Your weight today, in pounds" required>
+        <span class="weight-unit">lb</span>
+        <button class="btn primary" type="submit">${todays ? 'Save' : 'Log'}</button>
+      </form>`;
+  }
+
+  function weightCard() {
+    const d = state.dash;
+    const mine = weightsOf(d.me);
+    const last = mine[mine.length - 1];
+    const month = mine.filter((e) => e.day >= addDays(d.today, -30));
+    const partners = d.members.filter((m) => !isMe(m.id) && weightsOf(m.id).length);
+    return `
+      <section class="block">
+        <h2 class="section-title">Weight</h2>
+        <p class="section-note">${state.user.share_weight ? 'Your partners can see it.' : 'Only you see it.'}</p>
+        <article class="card weight-card">
+          <button type="button" class="weight-hit" data-action="open-weight" aria-label="Open your weight history">
+            <span class="icon-tile">${iconSvg('weight')}</span>
+            <span class="weight-head">
+              ${last ? `<span class="weight-num">${fmtLb(last.lb)}<span> lb</span></span>
+                        <span class="small muted">${weightChange(month.length > 1 ? month : mine) || `Logged ${shortDate(last.day)}`}</span>`
+                     : `<span class="weight-num empty">No weigh-ins yet</span><span class="small muted">Log it in the morning, same time each day.</span>`}
+            </span>
+            ${mine.length > 1 ? weightChart(month.length > 1 ? month : mine, 'you', false) : ''}
+          </button>
+          ${weightForm()}
+          ${partners.map((m) => {
+            const w = weightsOf(m.id);
+            return `<button type="button" class="weight-partner" data-action="open-weight">${avatar(m)}<span><strong>${esc(m.name)}</strong> ${fmtLb(w[w.length - 1].lb)} lb</span><span class="small muted">${weightChange(w.filter((e) => e.day >= addDays(d.today, -30)))}</span></button>`;
+          }).join('')}
+        </article>
+      </section>`;
+  }
+
+  const WEIGHT_RANGES = [['30', '30 days'], ['90', '90 days'], ['all', 'All']];
+
+  function weightView() {
+    const d = state.dash;
+    const range = state.weightRange || '90';
+    const inRange = (w) => (range === 'all' ? w : w.filter((e) => e.day >= addDays(d.today, -Number(range))));
+    const mine = weightsOf(d.me);
+    const shown = inRange(mine);
+    const last = mine[mine.length - 1];
+    const partners = d.members.filter((m) => !isMe(m.id) && weightsOf(m.id).length);
+    return `
+      <header class="settings-top">
+        <button class="back" data-action="close-settings">${uiIcon('chevron', 'back-chev')}Back</button>
+      </header>
+      <h1 class="title">Weight</h1>
+      <section class="card weight-big">
+        ${last ? `<div class="weight-num">${fmtLb(last.lb)}<span> lb</span></div><p class="small muted">${weightChange(shown) || `Logged ${shortDate(last.day)}`}</p>` : '<p class="muted">No weigh-ins yet. Log one below.</p>'}
+        <div class="chips" role="tablist">${WEIGHT_RANGES.map(([k, label]) => `<button class="chip ${k === range ? 'on' : ''}" role="tab" aria-selected="${k === range}" data-action="weight-range" data-range="${k}">${label}</button>`).join('')}</div>
+        ${shown.length > 1 ? weightChart(shown, 'you', true) : mine.length ? `<p class="small muted wchart-empty">${shown.length ? 'Log a few more days and your line shows up here.' : 'Nothing logged in this range.'}</p>` : ''}
+        ${weightForm()}
+      </section>
+      ${partners.map((m) => {
+        const w = inRange(weightsOf(m.id));
+        return `
+          <section class="card weight-big">
+            <div class="weight-who">${avatar(m)}<strong>${esc(m.name)}</strong></div>
+            <div class="weight-num">${fmtLb(weightsOf(m.id).slice(-1)[0].lb)}<span> lb</span></div>
+            <p class="small muted">${weightChange(w)}</p>
+            ${w.length > 1 ? weightChart(w, 'them', true) : '<p class="small muted wchart-empty">Not enough logged in this range.</p>'}
+          </section>`;
+      }).join('')}
+      <section class="card settings-card">
+        <label class="check"><input type="checkbox" data-action="set-share-weight" ${state.user.share_weight ? 'checked' : ''}> Let my partners see my weight</label>
+        <p class="small muted">Off by default. When it's on, everyone you have a pact with sees it.</p>
+      </section>
+      ${mine.length ? `
+        <section class="card">
+          <h2 class="card-title">Every weigh-in</h2>
+          <ul class="weight-list">
+            ${[...mine].reverse().map((e, i, arr) => {
+              const prev = arr[i + 1];
+              const diff = prev ? Math.round((e.lb - prev.lb) * 10) / 10 : null;
+              return `<li><span>${esc(shortDate(e.day))}</span><strong>${fmtLb(e.lb)} lb</strong><span class="small muted">${diff === null || diff === 0 ? '' : `${diff > 0 ? '+' : '−'}${fmtLb(Math.abs(diff))}`}</span><button class="icon-btn sm" data-action="weight-delete" data-day="${e.day}" aria-label="Delete ${esc(shortDate(e.day))}">${uiIcon('x')}</button></li>`;
+            }).join('')}
+          </ul>
+        </section>` : ''}`;
+  }
+
   // ---------- log-as-you-go amounts ----------
 
   const tracked = (h) => h.daily_amount > 0;
@@ -1949,8 +2162,6 @@
     await refresh();
   }
 
-  const listNames = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
-  const alsoIn = (res) => (res.also?.length ? ` Also in ${listNames(res.also)}.` : '');
 
   async function addAmount(habitId, delta, reset, day) {
     if (day === state.dash.today) day = undefined; // "on Wednesday" only for other days
@@ -1962,13 +2173,8 @@
     const total = weekly(h)
       ? `${fmtAmount(res.total, '')} / ${fmtAmount(weekTarget(h), h.unit)} this week`
       : `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
-    toast((reset ? `Reset to 0. ${total}.` : res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`) + alsoIn(res), {
-      label: 'Undo',
-      run: async () => {
-        await api('POST', '/api/amounts', { habit_id: habitId, delta: -delta, today: localToday(), ...on });
-        await refresh();
-      },
-    });
+    // Linked pacts update quietly: it's the same number everywhere.
+    toast(reset ? `Reset to 0. ${total}.` : res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`);
   }
 
   // Set the day's total ("I'm at 170 g"); Undo puts the old total back.
@@ -1981,29 +2187,26 @@
     const res = await api('POST', '/api/amounts', { habit_id: habitId, set: total, today: localToday(), ...on });
     await refresh();
     const where = `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
-    toast(`${res.done && before < h.daily_amount ? `${where}. Goal hit.` : `Now at ${where}.`}${alsoIn(res)}`, {
-      label: 'Undo',
-      run: async () => {
-        await api('POST', '/api/amounts', { habit_id: habitId, set: before, today: localToday(), ...on });
-        await refresh();
-      },
-    });
+    toast(res.done && before < h.daily_amount ? `${where}. Goal hit.` : `Now at ${where}.`);
   }
 
   async function logDone(habitId, day) {
     const res = await api('POST', '/api/checkins', { habit_id: habitId, day, status: 'done', today: localToday(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
     state.panel = null;
     await refresh();
-    toast((day === state.dash.today ? 'Done. Logged.' : `Logged for ${dayName(day)}, marked late.`) + alsoIn(res), {
-      label: 'Undo',
-      run: async () => {
-        await api('POST', '/api/checkins/undo', { habit_id: habitId, day, today: localToday() });
-        await refresh();
-      },
-    });
+    // The check turning blue says it. Tap it again to take it back.
+    if (day !== state.dash.today) toast(`Logged for ${dayName(day)}, marked late.`);
   }
 
   const forms = {
+    async weight(f) {
+      const lb = Number(f.lb.value);
+      if (!Number.isFinite(lb) || lb < 50 || lb > 800) throw new Error('Enter your weight in pounds');
+      await api('POST', '/api/weights', { lb, today: localToday() });
+      state.panel = null;
+      toast(`${fmtLb(lb)} lb logged.`);
+      await refresh();
+    },
     async signup(f) {
       const { user } = await api('POST', '/api/signup', { name: f.name.value, email: f.email.value, password: f.password.value });
       state.user = user;
@@ -2168,7 +2371,7 @@
     async miss(f) {
       const res = await api('POST', '/api/checkins', { habit_id: Number(f.dataset.habit), status: 'missed', note: f.note.value, today: localToday(), ...(f.dataset.day ? { day: f.dataset.day } : {}) });
       state.panel = null;
-      toast('Logged. Owning it counts.' + alsoIn(res));
+      toast('Logged. Owning it counts.');
       await refresh();
     },
   };
@@ -2453,6 +2656,34 @@
     async 'push-prompt-on'() {
       await enablePush();
     },
+    'open-weight'() {
+      state.view = 'weight';
+      state.panel = null;
+      history.pushState({ view: 'weight' }, '');
+      render();
+      window.scrollTo(0, 0);
+    },
+    'weight-range'(el) {
+      state.weightRange = el.dataset.range;
+      render();
+    },
+    'weight-edit'() {
+      state.panel = { type: 'weight' };
+      render();
+      app.querySelector('form[data-form=weight] input')?.focus();
+    },
+    async 'weight-delete'(el) {
+      const e = weightsOf(state.dash.me).find((x) => x.day === el.dataset.day);
+      await api('POST', '/api/weights/delete', { day: el.dataset.day });
+      await refresh();
+      toast(`Deleted ${shortDate(el.dataset.day)}.`, {
+        label: 'Undo',
+        run: async () => {
+          await api('POST', '/api/weights', { lb: e.lb, day: e.day, today: localToday() });
+          await refresh();
+        },
+      });
+    },
     'open-guide'() {
       state.view = 'guide';
       state.pactsOpen = false;
@@ -2654,12 +2885,21 @@
         ({ user: state.user } = await api('PATCH', '/api/me', { remind_at: el.value || null }));
         toast(el.value ? `Reminder set for ${el.selectedOptions[0].textContent}.` : 'Evening reminder off.');
       });
+    } else if (el.dataset.action === 'set-share-weight') {
+      guarded(async () => {
+        ({ user: state.user } = await api('PATCH', '/api/me', { share_weight: el.checked }));
+        toast(el.checked ? 'Your partners can see your weight.' : 'Your weight is just yours now.');
+        render();
+      });
     } else if (el.dataset.action === 'set-notify-partner') {
       guarded(async () => {
         ({ user: state.user } = await api('PATCH', '/api/me', { notify_partner: el.checked }));
       });
     }
   });
+
+  app.addEventListener('pointerdown', weightHover);
+  app.addEventListener('pointermove', weightHover);
 
   // A notification came in while the app is open: pull in what happened.
   if (!window.AA_DEMO && 'serviceWorker' in navigator) {

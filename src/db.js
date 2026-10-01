@@ -165,6 +165,15 @@ CREATE TABLE IF NOT EXISTS events (
   created_at      TEXT NOT NULL DEFAULT ${NOW}
 );
 CREATE INDEX IF NOT EXISTS events_by_partnership ON events(partnership_id, id);
+
+-- Your weight over time, one entry a day, in pounds. It's yours, not a
+-- pact's: partners see it only if you share it (users.share_weight).
+CREATE TABLE IF NOT EXISTS weights (
+  user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day      TEXT NOT NULL,
+  lb       REAL NOT NULL,
+  PRIMARY KEY (user_id, day)
+);
 `;
 
 // Additive migrations for databases created by older versions.
@@ -178,6 +187,7 @@ function migrate(db) {
   // off), whether your partner's check-ins buzz you, and the last day reminded.
   if (!userCols.includes('tz')) db.exec('ALTER TABLE users ADD COLUMN tz TEXT');
   if (!userCols.includes('remind_at')) db.exec("ALTER TABLE users ADD COLUMN remind_at TEXT DEFAULT '20:00'");
+  if (!userCols.includes('share_weight')) db.exec('ALTER TABLE users ADD COLUMN share_weight INTEGER NOT NULL DEFAULT 0');
   if (!userCols.includes('notify_partner')) db.exec('ALTER TABLE users ADD COLUMN notify_partner INTEGER NOT NULL DEFAULT 1');
   if (!userCols.includes('last_reminded')) db.exec('ALTER TABLE users ADD COLUMN last_reminded TEXT');
   const habitCols = db.prepare('PRAGMA table_info(habits)').all().map((c) => c.name);

@@ -187,7 +187,7 @@ function createApp({
   }
 
   // What the app knows about you: who you are, and your notification settings.
-  const USER_FIELDS = `u.id, u.name, u.username, u.email, u.tz, u.remind_at, u.notify_partner,
+  const USER_FIELDS = `u.id, u.name, u.username, u.email, u.tz, u.remind_at, u.notify_partner, u.share_weight,
     (SELECT COUNT(*) FROM push_subs ps WHERE ps.user_id = u.id) AS push_count`;
   const currentUserById = (id) => q(`SELECT ${USER_FIELDS} FROM users u WHERE u.id = ?`).get(id);
 
@@ -517,6 +517,7 @@ function createApp({
       if (body.remind_at !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.remind_at)) fail(400, 'Pick a reminder time');
       q('UPDATE users SET remind_at = ? WHERE id = ?').run(body.remind_at, user.id);
     }
+    if (body.share_weight !== undefined) q('UPDATE users SET share_weight = ? WHERE id = ?').run(body.share_weight ? 1 : 0, user.id);
     if (body.notify_partner !== undefined) q('UPDATE users SET notify_partner = ? WHERE id = ?').run(body.notify_partner ? 1 : 0, user.id);
     if (body.tz !== undefined) q('UPDATE users SET tz = ? WHERE id = ?').run(parseTz(body.tz), user.id);
     return { user: currentUserById(user.id) };
@@ -918,7 +919,37 @@ function createApp({
       ).all(p.id)) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
       events,
       last_seen_event_id,
+      // Goals waiting for your yes, in every pact you're in (for the badge).
+      waiting: Object.fromEntries(q(
+        `SELECT g.partnership_id AS id, COUNT(*) AS n FROM goals g JOIN memberships m ON m.partnership_id = g.partnership_id AND m.user_id = ?
+         WHERE g.status = 'proposed' AND g.proposed_by != ? GROUP BY g.partnership_id`
+      ).all(user.id, user.id).map((r) => [r.id, r.n])),
+      // Your weight, and your partners' if they share theirs.
+      weights: Object.fromEntries(ids
+        .filter((id) => id === user.id || q('SELECT share_weight FROM users WHERE id = ?').get(id)?.share_weight)
+        .map((id) => [id, q('SELECT day, lb FROM weights WHERE user_id = ? ORDER BY day').all(id)])),
     };
+  });
+
+  // ---------- weight ----------
+
+  // Log your weight for today (or yesterday, if you forgot). One a day: a
+  // second one replaces it.
+  route('POST', '/api/weights', ({ user, body }) => {
+    const today = clientToday(body.today);
+    const day = body.day === undefined ? today : body.day;
+    if (!L.canLog(day, today)) fail(400, 'You can only log today or yesterday');
+    const lb = Number(body.lb);
+    if (!Number.isFinite(lb) || lb < 50 || lb > 800) fail(400, 'Enter your weight in pounds');
+    q('INSERT INTO weights (user_id, day, lb) VALUES (?, ?, ?) ON CONFLICT (user_id, day) DO UPDATE SET lb = excluded.lb').run(user.id, day, Math.round(lb * 10) / 10);
+    return { ok: true };
+  });
+
+  // Take an entry back: any day you logged.
+  route('POST', '/api/weights/delete', ({ user, body }) => {
+    if (!L.isValidDay(body.day)) fail(400, 'day must be YYYY-MM-DD');
+    q('DELETE FROM weights WHERE user_id = ? AND day = ?').run(user.id, body.day);
+    return { ok: true };
   });
 
   // The weekly recap. On Sunday it's this week so far; otherwise last week.
