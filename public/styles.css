@@ -911,3 +911,30 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .preset[data-preset="custom"] .icon-tile { width: 34px; height: 34px; border-radius: 11px; }
 .preset[data-preset="custom"] .icon-tile .hicon { width: 20px; height: 20px; }
 .preset[data-preset="custom"].on { border-style: solid; }
+
+/* ---------- the + for proposing a shared goal ---------- */
+.fab {
+  position: fixed;
+  right: calc(18px + env(safe-area-inset-right));
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--you);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(47, 123, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: transform 0.25s ease, opacity 0.25s ease, bottom 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.fab .ui-icon { width: 28px; height: 28px; stroke-width: 2.4; }
+.fab:active { transform: scale(0.94); }
+.fab.away { transform: translateY(120px); opacity: 0; pointer-events: none; }
+/* Sit above a toast instead of under it. */
+body:has(#toast:not([hidden])) .fab { bottom: calc(86px + env(safe-area-inset-bottom)); }
+.add summary .add-close { width: 18px; height: 18px; margin-left: auto; color: var(--muted); }

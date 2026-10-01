@@ -365,6 +365,7 @@
         </button>
       </header>
       ${state.pactsOpen ? pactsMenu() : ''}
+      ${state.addOpen === 'shared' || state.reorder ? '' : `<button type="button" class="fab ${state.fabHidden ? 'away' : ''}" data-action="open-propose" aria-label="Propose a shared goal">${uiIcon('plus')}</button>`}
 
       ${wakeCard()}
       ${store('aa.guideSeen') ? '' : guidePromptCard()}
@@ -382,7 +383,7 @@
           ? ''
           : active.length
           ? active.map(goalCard).join('')
-          : `<p class="empty">${proposals.length ? 'Nothing is agreed yet.' : 'Agree on your first goal.'} You're both held to shared goals, and they're what your streak counts.</p>`}
+          : `<p class="empty">${proposals.length ? 'Nothing is agreed yet.' : 'Agree on your first goal: tap + to propose one.'} You're both held to shared goals, and they're what your streak counts.</p>`}
       </section>
 
       <section class="block">
@@ -660,7 +661,7 @@
 
       ${section(uiIcon('pact'), 'Pacts and goals', [
         'A pact is you and one other person. Start one, tap <strong>Share invite link</strong>, and they land in it as soon as they sign up.',
-        '<strong>Shared goals:</strong> one of you proposes, the other agrees. Requests wait under <strong>Needs your yes</strong>.',
+        '<strong>Shared goals:</strong> tap the blue <strong>+</strong> in the bottom corner to propose one; the other agrees. Requests wait under <strong>Needs your yes</strong>.',
         'Some shared goals let each of you set your own number (protein, calories) or your own times (wake-up).',
         '<strong>Side goals</strong> are just yours. Your partner can see them, but they don\'t count toward the streak.',
         "On your partner's row, the bell nudges them. Once they're done it turns into a star, so you can cheer them on.",
@@ -1526,6 +1527,9 @@
   function addForm(kind, startOpen, partnerName) {
     const shared = kind === 'shared';
     const isOpen = state.addOpen === kind || (startOpen && state.addOpen === null);
+    // Proposing starts from the + button in the corner; the form only shows
+    // here once it's open (or on a brand-new pact, where it opens itself).
+    if (shared && !isOpen) return '';
     const current = state.addOpen === kind ? state.preset : null;
     const preset = PRESETS.find((p) => p.key === current);
     const tiles = PRESETS.map(
@@ -1585,7 +1589,7 @@
 
     return `
       <details class="add ${shared ? 'add-shared' : ''}" data-kind="${kind}" ${isOpen ? 'open' : ''}>
-        <summary>${uiIcon('plus')}${shared ? 'Propose a shared goal' : 'Add a side goal'}</summary>
+        <summary>${uiIcon('plus')}${shared ? `Propose a shared goal${uiIcon('x', 'add-close')}` : 'Add a side goal'}</summary>
         <div class="add-body">
           <p class="small muted">${shared ? `${partnerName} has to agree before it starts. Then you're both on the hook.` : 'Pick one to start from, or make your own.'}</p>
           <div class="presets">${tiles}</div>
@@ -2634,6 +2638,15 @@
     async 'push-prompt-on'() {
       await enablePush();
     },
+    // The + in the corner: open the propose form and bring it into view.
+    'open-propose'() {
+      state.addOpen = 'shared';
+      state.preset = null;
+      state.pactsOpen = false;
+      render();
+      const form = app.querySelector('details.add-shared');
+      if (form) window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 16, behavior: 'smooth' });
+    },
     'open-weight'() {
       state.view = 'weight';
       state.panel = null;
@@ -2875,6 +2888,18 @@
       });
     }
   });
+
+  // The + slides away while you scroll down and comes back when you scroll up.
+  let lastScroll = window.scrollY;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    if (Math.abs(y - lastScroll) < 8) return;
+    const hide = y > lastScroll && y > 80;
+    lastScroll = y;
+    if (hide === !!state.fabHidden) return;
+    state.fabHidden = hide;
+    app.querySelector('.fab')?.classList.toggle('away', hide);
+  }, { passive: true });
 
   app.addEventListener('pointerdown', weightHover);
   app.addEventListener('pointermove', weightHover);
