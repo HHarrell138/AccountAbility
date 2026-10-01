@@ -1466,7 +1466,7 @@
     if (state.panel?.type === 'edit-plan' && state.panel.habitId === h.id) {
       return `
         <form class="panel" data-form="edit-plan" data-habit="${h.id}">
-          <p class="small muted">Name what you're doing each day, like Push, Legs or Long run. Only you see this; your partner plans their own.</p>
+          <p class="small muted">Optional. Name what you're doing each day, like Push, Legs or Long run. Only you see this; your partner plans their own. Leave it blank to clear it.</p>
           <div class="plan-grid">
             ${WEEK.map(([k, label]) => `
               <label class="plan-day" for="plan-${h.id}-${k}"><span>${label}</span>
@@ -1480,10 +1480,12 @@
         </form>`;
     }
     const days = WEEK.filter(([k]) => plan[k]);
+    // Optional: with no plan it's just a quiet link, nothing to fill in.
+    if (!days.length) return `<div class="plan-offer"><button class="link quiet" data-action="edit-plan" data-habit="${h.id}">Plan your days</button></div>`;
     return `
       <div class="row-sched plan-summary">
-        ${uiIcon('clock')}<span>${days.length ? days.map(([k, label]) => `${label} ${esc(plan[k])}`).join(' · ') : 'No plan for the days yet'}</span>
-        <button class="link" data-action="edit-plan" data-habit="${h.id}">${days.length ? 'Edit plan' : 'Plan your days'}</button>
+        ${uiIcon('clock')}<span>${days.map(([k, label]) => `${label} ${esc(plan[k])}`).join(' · ')}</span>
+        <button class="link" data-action="edit-plan" data-habit="${h.id}">Edit plan</button>
       </div>`;
   }
 
