@@ -20,7 +20,7 @@ Most habit trackers are either solo (easy to lie to yourself) or social (perform
 | **No rewriting history** | Tap today's or yesterday's circle to log it; yesterday is marked *late* for your partner to see. Nothing older. |
 | **Quitting is visible** | Dropping a goal shows up in the feed, and that week still counts. Ending a shared goal ends it for both of you. |
 | **Nudge / Cheer** | One tap to call your partner out or hype them up. |
-| **Notifications** | On the home-screen app: a buzz when your partner nudges, cheers, proposes a goal or checks in, and an evening reminder (your time zone, your time) only if goals are still open. |
+| **Notifications** | On the home-screen app: when your partner joins, is up (wake-up logged, with the time it was for), or hits every goal for the day; nudges, cheers and goal requests; and an evening reminder (your time zone, your time) only if goals are still open. Not every single check-in. |
 | **Weekly recap** | Sunday through Tuesday: the week's combined score, where the streak landed, each shared goal, and every miss with its reason. |
 | **Your color, their color** | Black and blue. You're blue and your partner is ice-white, so every shared goal reads as you vs. them at a glance. |
 

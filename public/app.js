@@ -512,7 +512,7 @@
     } else if (Notification.permission === 'denied') {
       body = `<p class="small muted">Notifications are blocked for AccountAbility. Turn them on in your phone's Settings, then come back here.</p>`;
     } else if (!state.pushOn) {
-      body = `<p class="small muted">Get buzzed when ${pname} nudges you or checks in, plus an evening reminder if you still have goals open.</p>
+      body = `<p class="small muted">Get buzzed when ${pname} is up, hits every goal for the day, or nudges you, plus an evening reminder if you still have goals open.</p>
         <button class="btn small primary" data-action="push-on">${uiIcon('bell')}Turn on notifications</button>`;
     } else {
       const times = ['18:00', '19:00', '20:00', '21:00', '22:00'];
@@ -526,7 +526,7 @@
             ${r && !times.includes(r) ? `<option value="${esc(r)}" selected>${esc(r)}</option>` : ''}
           </select>
         </label>
-        <label class="check"><input type="checkbox" data-action="set-notify-partner" ${state.user.notify_partner ? 'checked' : ''}> When ${pname} checks in or misses</label>
+        <label class="check"><input type="checkbox" data-action="set-notify-partner" ${state.user.notify_partner ? 'checked' : ''}> When ${pname} is up, or hits every goal for the day</label>
         <p class="small muted">Nudges, cheers and goal requests always come through.</p>
         <div class="row">
           <button class="btn small" data-action="push-test">Send a test</button>
@@ -545,7 +545,7 @@
         <span class="icon-tile">${uiIcon('bell')}</span>
         <div>
           <p><strong>Turn on notifications</strong></p>
-          <p class="small muted">Know when ${partner ? esc(partner.name) : 'your partner'} checks in or nudges you, and get an evening reminder if goals are still open.</p>
+          <p class="small muted">Know when ${partner ? esc(partner.name) : 'your partner'} is up, finishes the day, or nudges you, and get an evening reminder if goals are still open.</p>
           <div class="row">
             <button class="btn small primary" data-action="push-prompt-on">Turn on</button>
             <button class="btn small" data-action="push-later">Not now</button>

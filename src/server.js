@@ -78,6 +78,12 @@ function clientToday(value) {
 
 // ---------- auth ----------
 
+// "05:30" -> "5:30 AM"
+function clock(hhmm) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 function parseEmail(value) {
   const email = String(value ?? '').trim().toLowerCase();
   if (email.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Enter a valid email');
@@ -253,7 +259,10 @@ function createApp({
        VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     ).get(e.partnership_id, e.actor_id, e.target_id ?? null, e.habit_id ?? null, e.checkin_id ?? null, e.kind, e.message ?? '', e.day ?? null);
     // After the request's transaction settles: only events that stuck buzz anyone.
-    setImmediate(() => notifyEvent(id));
+    setImmediate(() => {
+      notifyEvent(id);
+      notifyAllDone(id);
+    });
   }
 
   // ---------- notifications ----------
@@ -288,9 +297,10 @@ function createApp({
     return sent;
   }
 
-  // Who hears about an event, and what it says. Your partner's check-ins
-  // follow their "partner activity" setting; nudges, cheers, proposals and
-  // the rest always go through.
+  // Who hears about an event, and what it says. Not every check-in: your
+  // partner hears when you're up (wake-up logged) and when you've hit every
+  // goal for the day, if they have "partner activity" on. Joins, nudges,
+  // cheers and goal requests always go through.
   function notifyEvent(eventId) {
     const e = q(
       `SELECT e.*, a.name AS actor, t.name AS target, h.title AS habit FROM events e
@@ -300,13 +310,20 @@ function createApp({
     if (!e) return; // rolled back, or replaced already
     const others = memberIds(e.partnership_id).filter((id) => id !== e.actor_id);
     const optedIn = (ids) => ids.filter((id) => q('SELECT notify_partner FROM users WHERE id = ?').get(id)?.notify_partner);
-    const late = e.kind.endsWith('_late') && e.day ? ` (for ${new Date(`${e.day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })})` : '';
+    // A wake-up logged today: the time it was for, when there's a schedule.
+    let wake = null;
+    if (e.kind === 'done' && e.habit_id) {
+      const h = q('SELECT icon, schedule FROM habits WHERE id = ?').get(e.habit_id);
+      if (h?.icon === 'wake') {
+        const t = h.schedule && JSON.parse(h.schedule)[['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${e.day}T00:00:00Z`).getUTCDay()]];
+        wake = t ? clock(t) : true;
+      }
+    }
     // The pact's name is each person's own name for it.
     const say = (pact) => ({
       nudge: [[e.target_id], `${e.actor} nudged you`, e.message || (e.habit ? `About ${e.habit}` : pact)],
       cheer: [[e.target_id], `${e.actor} cheered you on`, e.message || (e.habit ? `For ${e.habit}` : pact)],
-      done: [optedIn(others), `${e.actor} did ${e.habit}${late}`, pact],
-      missed: [optedIn(others), `${e.actor} missed ${e.habit}${late}`, e.message ? `“${e.message}”` : pact],
+      done: e.kind === 'done' && wake ? [optedIn(others), `${e.actor} is up`, `Wake-up${wake === true ? '' : ` by ${wake}`}, logged. ${pact}`] : [[]],
       goal_proposed: [others, `${e.actor} proposed a shared goal`, `${e.message}. Open the app to agree.`],
       goal_accepted: [others, `${e.actor} agreed to ${e.message}`, 'You’re both on it.'],
       goal_ended: [others, `${e.actor} ended ${e.habit}`, pact],
@@ -321,14 +338,31 @@ function createApp({
     }
   }
 
+  // After a check-in for today: if that was the last goal you had due in
+  // this pact, your partner hears it, once a day.
+  function notifyAllDone(eventId) {
+    const e = q('SELECT e.*, a.name AS actor FROM events e JOIN users a ON a.id = e.actor_id WHERE e.id = ?').get(eventId);
+    if (!e || e.kind !== 'done' || !e.day) return;
+    const m = q('SELECT all_done_day FROM memberships WHERE partnership_id = ? AND user_id = ?').get(e.partnership_id, e.actor_id);
+    if (!m || m.all_done_day === e.day) return;
+    if (goalsLeft(e.actor_id, e.day, e.partnership_id).length) return;
+    q('UPDATE memberships SET all_done_day = ? WHERE partnership_id = ? AND user_id = ?').run(e.day, e.partnership_id, e.actor_id);
+    const others = memberIds(e.partnership_id)
+      .filter((id) => id !== e.actor_id)
+      .filter((id) => q('SELECT notify_partner FROM users WHERE id = ?').get(id)?.notify_partner);
+    for (const uid of others) {
+      notify([uid], { title: `${e.actor} hit every goal today`, body: `Your move. ${pactName(e.partnership_id, uid)}`, tag: `${e.partnership_id}-alldone-${e.actor_id}`, url: '/' });
+    }
+  }
+
   // Your goals still open today (in your time zone), one per goal even when
   // it's linked across pacts. Weekly-miles goals and goals whose week is
   // already hit don't nag.
-  function goalsLeft(userId, day) {
+  function goalsLeft(userId, day, pactId = null) {
     const habits = q(
       `SELECT h.* FROM habits h JOIN memberships m ON m.partnership_id = h.partnership_id AND m.user_id = h.user_id
        WHERE h.user_id = ? AND h.archived_day IS NULL AND h.created_day <= ? ORDER BY h.partnership_id, h.position, h.id`
-    ).all(userId, day);
+    ).all(userId, day).filter((h) => pactId === null || h.partnership_id === pactId);
     const week = L.weekStart(day);
     const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${day}T00:00:00Z`).getUTCDay()];
     const seen = new Set();

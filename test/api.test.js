@@ -762,13 +762,35 @@ test('notifications: who gets buzzed, settings, and the evening reminder', async
   pushes.length = 0;
   await hank('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today });
   await tick();
-  assert.deepEqual(pushes.map((p) => [p.endpoint.split('/').pop(), p.title, p.body]), [['king', 'Hank did Work out', 'Hank & King']]);
+  // Not "Hank did Work out": that was his last goal today, so King hears he's done for the day.
+  assert.deepEqual(pushes.map((p) => [p.endpoint.split('/').pop(), p.title, p.body]), [['king', 'Hank hit every goal today', 'Your move. Hank & King']]);
 
-  // King turns partner activity off: no more check-ins, but nudges still land.
-  await king('PATCH', '/api/me', { notify_partner: false });
+  // Once a day: undoing and redoing it doesn't buzz King again.
   pushes.length = 0;
   await hank('POST', '/api/checkins/undo', { habit_id: mine.id, today });
   await hank('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today });
+  await tick();
+  assert.equal(pushes.length, 0);
+
+  // A wake-up says the time it was for.
+  const wake = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule: { mon: '05:30', tue: '05:30', wed: '05:30', thu: '05:30', fri: '05:30', sat: '05:30', sun: '05:30' }, today })).data.habit;
+  const side = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Read', target_per_week: 7, today })).data.habit;
+  await tick();
+  pushes.length = 0;
+  await hank('POST', '/api/checkins', { habit_id: wake.id, status: 'done', today });
+  await tick();
+  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Hank is up', 'Wake-up by 5:30 AM, logged. Hank & King']]);
+  // Other goals and misses don't buzz.
+  pushes.length = 0;
+  await hank('POST', '/api/checkins', { habit_id: side.id, status: 'missed', note: 'Too tired', today });
+  await tick();
+  assert.equal(pushes.length, 0);
+
+  // King turns partner activity off: no more wake-ups, but nudges still land.
+  await king('PATCH', '/api/me', { notify_partner: false });
+  pushes.length = 0;
+  await hank('POST', '/api/checkins/undo', { habit_id: wake.id, today });
+  await hank('POST', '/api/checkins', { habit_id: wake.id, status: 'done', today });
   await hank('POST', `/api/partnerships/${pact.id}/nudges`, { kind: 'nudge', to_user_id: kingId, habit_id: dash.habits.find((h) => h.goal_id === g.id && h.user_id === kingId).id });
   await tick();
   assert.deepEqual(pushes.map((p) => [p.endpoint.split('/').pop(), p.title, p.body]), [['king', 'Hank nudged you', 'About Work out']]);
@@ -839,7 +861,7 @@ test('rename a pact: only for you', async (t) => {
   const h = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Read', target_per_week: 3, today })).data.habit;
   await hank('POST', '/api/checkins', { habit_id: h.id, status: 'done', today });
   await new Promise((r) => setTimeout(r, 30));
-  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Hank did Read', 'Hank']]);
+  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Hank hit every goal today', 'Your move. Hank']]);
 
   // Blank goes back to the name it started with; too long is refused.
   await hank('PATCH', `/api/partnerships/${pact.id}`, { name: '  ' });

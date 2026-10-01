@@ -191,6 +191,8 @@ function migrate(db) {
   // it was started with.
   const memberCols = db.prepare('PRAGMA table_info(memberships)').all().map((c) => c.name);
   if (!memberCols.includes('nickname')) db.exec('ALTER TABLE memberships ADD COLUMN nickname TEXT');
+  // The last day your partner was told you hit every goal (once a day).
+  if (!memberCols.includes('all_done_day')) db.exec('ALTER TABLE memberships ADD COLUMN all_done_day TEXT');
   const goalCols = db.prepare('PRAGMA table_info(goals)').all().map((c) => c.name);
   if (!goalCols.includes('schedule')) db.exec("ALTER TABLE goals ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
   if (!goalCols.includes('personal')) db.exec('ALTER TABLE goals ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');
