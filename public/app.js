@@ -59,7 +59,7 @@
     { key: 'wake', icon: 'wake', label: 'Wake up', schedule: { mon: '06:00', tue: '06:00', wed: '06:00', thu: '06:00', fri: '06:00', sat: '08:00', sun: '08:00' } },
     { key: 'prayer', icon: 'prayer', label: 'Prayer', title: () => 'Dedicated prayer', days: 7 },
     { key: 'sober', icon: 'sober', label: 'No alcohol', title: () => 'No alcohol', days: 7, challenge: 30 },
-    { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
+    { key: 'custom', icon: 'check', label: 'Custom goal', days: 5 },
   ];
 
   // Challenge lengths: a finish line ("30 days, no alcohol"), or ongoing.

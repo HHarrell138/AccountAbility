@@ -897,3 +897,17 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .wchart-empty { margin: 10px 0 4px; }
 .segments .seg.gap { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); }
 .segments .seg.pad { visibility: hidden; }
+
+/* Custom: its own full-width row under the presets, centered, dashed
+   to read as "make your own". */
+.preset[data-preset="custom"] {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-style: dashed;
+}
+.preset[data-preset="custom"] .icon-tile { width: 34px; height: 34px; border-radius: 11px; }
+.preset[data-preset="custom"] .icon-tile .hicon { width: 20px; height: 20px; }
+.preset[data-preset="custom"].on { border-style: solid; }
