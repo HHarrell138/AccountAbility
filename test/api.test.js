@@ -773,13 +773,14 @@ test('notifications: who gets buzzed, settings, and the evening reminder', async
   assert.equal(pushes.length, 0);
 
   // A wake-up says the time it was for.
-  const wake = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule: { mon: '05:30', tue: '05:30', wed: '05:30', thu: '05:30', fri: '05:30', sat: '05:30', sun: '05:30' }, today })).data.habit;
+  const late = { mon: '23:59', tue: '23:59', wed: '23:59', thu: '23:59', fri: '23:59', sat: '23:59', sun: '23:59' }; // always still open
+  const wake = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule: late, today })).data.habit;
   const side = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Read', target_per_week: 7, today })).data.habit;
   await tick();
   pushes.length = 0;
   await hank('POST', '/api/checkins', { habit_id: wake.id, status: 'done', today });
   await tick();
-  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Hank is up', 'Wake-up by 5:30 AM, logged. Hank & King']]);
+  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Hank is up', 'Wake-up by 11:59 PM, logged. Hank & King']]);
   // Other goals and misses don't buzz.
   pushes.length = 0;
   await hank('POST', '/api/checkins', { habit_id: side.id, status: 'missed', note: 'Too tired', today });
@@ -900,4 +901,37 @@ test('plan your days: private to you, carried to linked goals', async (t) => {
   // Not for amount goals.
   const water = (await hank('POST', '/api/habits', { partnership_id: a.id, title: 'Water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 8, today })).data.habit;
   assert.equal((await hank('PATCH', `/api/habits/${water.id}`, { plan: { mon: 'x' } })).status, 400);
+});
+
+test('wake-up: counts only if logged by 10 minutes past your time, that morning', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  const pact = (await hank('POST', '/api/partnerships', { today })).data.partnership;
+  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const at = (time) => Object.fromEntries(days.map((d) => [d, time]));
+  const wake = async (schedule) => (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule, today })).data.habit;
+  const log = (h, extra = {}) => hank('POST', '/api/checkins', { habit_id: h.id, status: 'done', today, tz: 'UTC', ...extra });
+
+  // Before your time (here 11:59 PM, so always): counts.
+  assert.equal((await log(await wake(at('23:59')))).status, 200);
+
+  // Past the window: refused, but a miss can still be logged.
+  const nowMin = new Date().getUTCHours() * 60 + new Date().getUTCMinutes();
+  if (nowMin > 11) {
+    const early = await wake(at('00:00'));
+    const res = await log(early);
+    assert.equal(res.status, 400);
+    assert.match(res.data.error, /window closed at 12:10 AM/);
+    assert.equal((await hank('POST', '/api/checkins', { habit_id: early.id, status: 'missed', note: 'Slept in', today })).status, 200);
+  }
+
+  // A day with no time is a day off: logging it is fine.
+  const dayKey = days[(new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7];
+  const off = await wake(Object.fromEntries(days.filter((d) => d !== dayKey).map((d) => [d, '00:00'])));
+  assert.equal((await log(off)).status, 200);
 });

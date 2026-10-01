@@ -78,6 +78,21 @@ function clientToday(value) {
 
 // ---------- auth ----------
 
+// The day and the minutes past midnight right now in a time zone.
+function localNow(tz, now = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(now)
+      .map((p) => [p.type, p.value])
+  );
+  return { day: `${parts.year}-${parts.month}-${parts.day}`, minutes: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+
+// How long after a wake-up time you can still log it.
+const WAKE_GRACE_MIN = 10;
+const toMinutes = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+const fromMinutes = (m) => `${String(Math.min(23, Math.floor(m / 60))).padStart(2, '0')}:${String(m >= 24 * 60 ? 59 : m % 60).padStart(2, '0')}`;
+
 // "05:30" -> "5:30 AM"
 function clock(hhmm) {
   const [h, m] = String(hhmm).split(':').map(Number);
@@ -387,16 +402,16 @@ function createApp({
       `SELECT * FROM users WHERE remind_at IS NOT NULL AND tz IS NOT NULL AND id IN (SELECT user_id FROM push_subs)`
     ).all();
     for (const u of users) {
-      let parts;
+      let local;
       try {
-        parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: u.tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).map((p) => [p.type, p.value]));
+        local = localNow(u.tz, now);
       } catch {
         continue;
       }
-      const day = `${parts.year}-${parts.month}-${parts.day}`;
+      const day = local.day;
       if (u.last_reminded === day) continue;
       const [rh, rm] = u.remind_at.split(':').map(Number);
-      const late = Number(parts.hour) * 60 + Number(parts.minute) - (rh * 60 + rm);
+      const late = local.minutes - (rh * 60 + rm);
       if (late < 0) continue;
       q('UPDATE users SET last_reminded = ? WHERE id = ?').run(day, u.id);
       if (late > 120) continue;
@@ -1102,6 +1117,21 @@ function createApp({
     if (status !== 'done' && status !== 'missed') fail(400, 'status must be done or missed');
     const note = str(body.note, 'Note', { max: 280, required: false });
     if (status === 'missed' && note.length === 0) fail(400, 'Own the miss: say what got in the way');
+    // A wake-up counts only if you log it that morning, by 10 minutes past
+    // your time; after that it can only be a miss. (Days without a time are
+    // off, so anything goes.) The time is checked in your own time zone.
+    if (status === 'done' && h.icon === 'wake' && h.schedule) {
+      const t = JSON.parse(h.schedule)[['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${day}T00:00:00Z`).getUTCDay()]];
+      if (t) {
+        if (day !== today) fail(400, 'A wake-up can only be logged that morning.');
+        const tz = body.tz ? parseTz(body.tz) : q('SELECT tz FROM users WHERE id = ?').get(user.id)?.tz || 'UTC';
+        const now = localNow(tz);
+        const closes = toMinutes(t) + WAKE_GRACE_MIN;
+        if (now.day > day || (now.day === day && now.minutes > closes)) {
+          fail(400, `Too late to count: the window closed at ${clock(fromMinutes(closes))}. You can log it as missed.`);
+        }
+      }
+    }
     const late = day !== today ? 1 : 0;
 
     return tx(() => {

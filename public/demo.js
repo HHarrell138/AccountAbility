@@ -420,6 +420,13 @@
       if (day < h.created_day) fail(400, 'That habit did not exist yet');
       const note = text(b.note, 'Note', { max: 280, required: false });
       if (b.status === 'missed' && !note) fail(400, 'Own the miss: say what got in the way');
+      // Same as the server: a wake-up counts only that morning, by 10 past.
+      if (b.status === 'done' && h.icon === 'wake' && h.schedule) {
+        const t = JSON.parse(h.schedule)[['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${day}T00:00:00Z`).getUTCDay()]];
+        const n = new Date();
+        if (t && day !== today) fail(400, 'A wake-up can only be logged that morning.');
+        if (t && n.getHours() * 60 + n.getMinutes() > Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) + 10) fail(400, 'Too late to count: the window has closed. You can log it as missed.');
+      }
       const c = upsertCheckin(h, day, b.status, note, day !== today ? 1 : 0);
       if (db.members.includes(KING)) {
         const reacted = db.events.some((e) => e.actor_id === KING && e.habit_id === h.id && e.kind === 'cheer' && e.created_at.slice(0, 10) === now().slice(0, 10));
