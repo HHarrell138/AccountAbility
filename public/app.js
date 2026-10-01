@@ -1528,8 +1528,8 @@
     const shared = kind === 'shared';
     const isOpen = state.addOpen === kind || (startOpen && state.addOpen === null);
     // Proposing starts from the + button in the corner; the form only shows
-    // here once it's open (or on a brand-new pact, where it opens itself).
-    if (shared && !isOpen) return '';
+    // here while it's open.
+    if (shared && state.addOpen !== 'shared') return '';
     const current = state.addOpen === kind ? state.preset : null;
     const preset = PRESETS.find((p) => p.key === current);
     const tiles = PRESETS.map(
@@ -2864,6 +2864,9 @@
       } else if (!ev.target.open && state.addOpen === kind) {
         state.addOpen = 'closed'; // closed on purpose: don't auto-open it again
         state.preset = null;
+        // Closing the propose form takes it off the page (the + is the way
+        // back in), rather than leaving a folded-up bar behind.
+        if (kind === 'shared') render();
       }
     },
     true
