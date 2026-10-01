@@ -190,6 +190,11 @@ function migrate(db) {
   // Your own plan for a goal's days, e.g. {"mon":"Push","tue":"Legs"}. Only
   // you see it; your partner plans their own.
   if (!habitCols.includes('plan')) db.exec("ALTER TABLE habits ADD COLUMN plan TEXT NOT NULL DEFAULT ''");
+  // Challenges: a goal with a finish line ("30 days, no alcohol"). Goals keep
+  // the length (ends_after); each person's habit gets its last day once it
+  // starts, and finished_day once it's been wrapped up.
+  if (!habitCols.includes('ends_day')) db.exec('ALTER TABLE habits ADD COLUMN ends_day TEXT');
+  if (!habitCols.includes('finished_day')) db.exec('ALTER TABLE habits ADD COLUMN finished_day TEXT');
   // The last day a wake-up goal sent its "time to log it" alert (once a day).
   if (!habitCols.includes('wake_pinged')) db.exec('ALTER TABLE habits ADD COLUMN wake_pinged TEXT');
   // Your own name for a pact ("King"), which only you see. NULL = the name
@@ -201,6 +206,7 @@ function migrate(db) {
   const goalCols = db.prepare('PRAGMA table_info(goals)').all().map((c) => c.name);
   if (!goalCols.includes('schedule')) db.exec("ALTER TABLE goals ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
   if (!goalCols.includes('personal')) db.exec('ALTER TABLE goals ADD COLUMN personal INTEGER NOT NULL DEFAULT 0');
+  if (!goalCols.includes('ends_after')) db.exec('ALTER TABLE goals ADD COLUMN ends_after INTEGER NOT NULL DEFAULT 0');
   for (const [table, cols] of [['habits', habitCols], ['goals', goalCols]]) {
     if (!cols.includes('daily_amount')) db.exec(`ALTER TABLE ${table} ADD COLUMN daily_amount REAL NOT NULL DEFAULT 0`);
     if (!cols.includes('unit')) db.exec(`ALTER TABLE ${table} ADD COLUMN unit TEXT NOT NULL DEFAULT ''`);

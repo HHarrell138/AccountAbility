@@ -154,3 +154,16 @@ test('canLog: today and yesterday only', () => {
   assert.ok(L.canLog('2026-10-04', '2026-10-05')); // Monday can still fix Sunday
   assert.ok(!L.canLog('junk', thu));
 });
+
+test('challengeResult: days that counted out of the days that could', () => {
+  // Wed 2026-01-07 through Tue 2026-01-13, every day: 7 days over two weeks.
+  const h = { id: 1, created_day: '2026-01-07', ends_day: '2026-01-13', target_per_week: 7, schedule: '' };
+  const c = (day, status = 'done') => ({ habit_id: 1, day, status });
+  const r = L.challengeResult(h, [c('2026-01-07'), c('2026-01-08'), c('2026-01-09', 'missed'), c('2026-01-13'), c('2026-01-14'), { habit_id: 2, day: '2026-01-10', status: 'done' }]);
+  assert.deepEqual(r, { done: 3, possible: 7, days: 7 });
+  // The last week's target stops at the finish line.
+  assert.equal(L.effectiveTarget(h, '2026-01-12'), 2);
+  assert.equal(L.effectiveTarget(h, '2026-01-19'), 0);
+  // 4x a week, Wed the 7th to Tue the 20th: 4 (Wed-Sun) + 4 + 2 (Mon-Tue).
+  assert.equal(L.challengeResult({ ...h, ends_day: '2026-01-20', target_per_week: 4 }, []).possible, 10);
+});

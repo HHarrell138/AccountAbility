@@ -20,6 +20,7 @@
     sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     run: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"/>',
     prayer: '<path d="M12 3.5c-1.6 1.6-2.6 4-2.6 6.8v3.6l-3.2 3.5 2.2 3.1 3.6-3.4z"/><path d="M12 3.5c1.6 1.6 2.6 4 2.6 6.8v3.6l3.2 3.5-2.2 3.1-3.6-3.4z"/>',
+    sober: '<path d="M7.5 3.5h9l-.6 5.2a3.9 3.9 0 0 1-7.8 0z"/><path d="M12 12.6v6.9M8.5 19.5h7"/><path d="M4 4l16 16"/>',
     wake: '<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2.5 1.5"/><path d="M4 6.5L7 4M20 6.5L17 4"/>',
   };
   const iconSvg = (key) =>
@@ -56,8 +57,24 @@
     { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, min: 4, unit: 'hours', days: 5 },
     { key: 'wake', icon: 'wake', label: 'Wake up', schedule: { mon: '06:00', tue: '06:00', wed: '06:00', thu: '06:00', fri: '06:00', sat: '08:00', sun: '08:00' } },
     { key: 'prayer', icon: 'prayer', label: 'Prayer', title: () => 'Dedicated prayer', days: 7 },
+    { key: 'sober', icon: 'sober', label: 'No alcohol', title: () => 'No alcohol', days: 7, challenge: 30 },
     { key: 'custom', icon: 'check', label: 'Custom', days: 5 },
   ];
+
+  // Challenge lengths: a finish line ("30 days, no alcohol"), or ongoing.
+  const CHALLENGE_DAYS = [7, 14, 21, 30, 60, 90];
+
+  // Where a challenge stands: "Day 12 of 30", or done. '' if it's ongoing.
+  function challengeLine(h) {
+    if (!h?.ends_day) return '';
+    const total = daysBetween(h.created_day, h.ends_day) + 1;
+    const today = state.dash.today;
+    if (today > h.ends_day) return `${total}-day challenge · finished`;
+    if (today < h.created_day) return `${total}-day challenge`;
+    const n = daysBetween(h.created_day, today) + 1;
+    return n === total ? `Last day of ${total}` : `Day ${n} of ${total}`;
+  }
+  const challengeOver = (h) => Boolean(h.ends_day && state.dash.today > h.ends_day);
 
   // `personal` presets: agreed as a habit, but each person sets their own number
   // (a 130 lb and a 200 lb person shouldn't share a protein target).
@@ -98,6 +115,7 @@
     d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   }
+  const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
   function weekStart(day) {
     const dow = new Date(day + 'T00:00:00Z').getUTCDay();
@@ -550,7 +568,7 @@
     const now = new Date();
     const mins = now.getHours() * 60 + now.getMinutes();
     for (const h of d.habits) {
-      if (!isMe(h.user_id) || h.archived_day || h.icon !== 'wake' || h.created_day > d.today) continue;
+      if (!isMe(h.user_id) || h.archived_day || challengeOver(h) || h.icon !== 'wake' || h.created_day > d.today) continue;
       const t = parseSched(h.schedule)?.[dayKey(d.today)];
       if (!t) continue;
       if (d.checkins.some((c) => c.habit_id === h.id && c.day === d.today)) continue;
@@ -671,6 +689,11 @@
         'At your time, a card at the top counts down the 10 minutes. Tap <strong>I\'m up</strong>. With notifications on, your phone reminds you right at your time.',
         'Each of you has your own time for each day. Change yours from the goal\'s ⋯ menu; the days themselves stay put.',
       ])}
+      ${section(iconSvg('sober'), 'Challenges', [
+        'Any goal can have a finish line: pick <strong>How long</strong> (7 to 90 days) when you add it. <strong>No alcohol</strong> starts as a 30-day challenge.',
+        'The card counts it: <strong>Day 12 of 30</strong>. On a shared goal, Day 1 is the day you both agree.',
+        'When it\'s over, it wraps itself up and you both see the result, like <strong>28 of 30 days</strong>. Miss the last day\'s log? You still get the next day to log it as yesterday.',
+      ])}
       ${section(uiIcon('clock'), 'Days and the week', [
         '<strong>Tap any circle</strong> to see that whole day: every goal, how close you got, and how your partner did.',
         'Today and yesterday can be logged there. Earlier days are just to look at, and later days show what\'s coming up.',
@@ -711,7 +734,7 @@
     const badge = day === d.today ? 'Today' : day === addDays(d.today, -1) ? 'Yesterday' : future ? 'Coming up' : 'View only';
     const partner = d.members.find((m) => !isMe(m.id));
     const goals = d.habits
-      .filter((h) => isMe(h.user_id) && h.created_day <= day && (!h.archived_day || h.archived_day > day))
+      .filter((h) => isMe(h.user_id) && h.created_day <= day && (!h.archived_day || h.archived_day > day) && (!h.ends_day || h.ends_day >= day))
       .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(a, b));
 
     const rows = goals.map((h) => dayRow(h, day, editable, future, partner)).join('');
@@ -881,7 +904,7 @@
     const d = state.dash;
     const scored = new Map((d.week.members[d.me]?.habits || []).map((x) => [x.habit_id, x]));
     const goals = d.habits
-      .filter((h) => isMe(h.user_id) && !h.archived_day && h.created_day <= d.today)
+      .filter((h) => isMe(h.user_id) && !h.archived_day && !challengeOver(h) && h.created_day <= d.today)
       .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(a, b)); // shared first, each in your order
 
     const items = goals.map((h) => {
@@ -1081,7 +1104,7 @@
     const partner = d.members.find((m) => !isMe(m.id));
     const incoming = proposals.filter((g) => !isMe(g.proposed_by));
     const outgoing = proposals.filter((g) => isMe(g.proposed_by));
-    const sub = (g) => [esc(cadence(g)), g.personal ? 'your own number' : g.schedule ? 'your own times' : ''].filter(Boolean).join(' · ');
+    const sub = (g) => [esc(cadence(g)), g.ends_after ? `${g.ends_after}-day challenge` : '', g.personal ? 'your own number' : g.schedule ? 'your own times' : ''].filter(Boolean).join(' · ');
 
     const ask = incoming
       .map((g) => {
@@ -1203,7 +1226,7 @@
       const offDay = sched && !sched[WEEK[i][0]];
       const got = !c && tracked(h) ? amountOn(h, day) : 0; // partway there: a partly filled dot
       const ran = weekly(h) && amountOn(h, day) > 0; // weekly totals: every day you logged fills in
-      const cls = ['dot', c ? c.status : ran ? 'done' : '', got && !ran ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || offDay ? 'off' : ''].join(' ');
+      const cls = ['dot', c ? c.status : ran ? 'done' : '', got && !ran ? 'partial' : '', day === d.today ? 'today' : '', day > d.today || day < h.created_day || (h.ends_day && day > h.ends_day) || offDay ? 'off' : ''].join(' ');
       const title = c ? `${c.status}${c.late ? ' (late)' : ''}${c.note ? ': ' + c.note : ''}` : got ? fmtAmount(got, h.unit) : day;
       const fill = got ? ` style="--pct:${Math.min(100, Math.round((got / h.daily_amount) * 100))}%"` : '';
       // Every circle opens that day: all your goals on it, editable for
@@ -1224,6 +1247,7 @@
   // partner's sends a nudge (or a cheer once they've done it).
   function rowAction(h, w) {
     const d = state.dash;
+    if (challengeOver(h)) return `<span class="tick-mark closed" aria-label="Challenge finished">${uiIcon('star')}</span>`;
     if (isMe(h.user_id) && tracked(h)) {
       return plusButton(h, weekly(h) ? weekDone(h) : w.todayC?.status === 'done', 'card');
     }
@@ -1437,7 +1461,7 @@
         <div class="goal-hit" data-action="toggle-goal" data-goal="${g.id}">
           ${g.personal
             ? cardHead(g.icon, personalPreset(g.icon)?.personal || g.title, `Both of you · your own numbers · ${g.target_per_week}x a week`, g.why, mine)
-            : cardHead(g.icon, mine && !g.schedule ? mine.title : g.title, g.schedule ? 'Both of you · each on your own times' : `Both of you · ${esc(cadence(mine && !g.schedule ? mine : g))}`, g.why, mine)}
+            : cardHead(g.icon, mine && !g.schedule ? mine.title : g.title, `${g.schedule ? 'Both of you · each on your own times' : `Both of you · ${esc(cadence(mine && !g.schedule ? mine : g))}`}${mine?.ends_day ? ` · <span class="nowrap">${challengeLine(mine)}</span>` : g.ends_after ? ` · ${g.ends_after}-day challenge` : ''}`, g.why, mine)}
           ${mine ? proratedNote(mine) : ''}
         </div>
         ${mine ? editPanel(mine, true) : ''}
@@ -1458,7 +1482,7 @@
     const mine = isMe(h.user_id);
     return `
       <article class="card side" id="h-${h.id}">
-        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`}${h.schedule ? '' : ` · ${esc(cadence(h))}`}`, h.why, mine && !h.archived_day ? h : null)}
+        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`}${h.schedule ? '' : ` · ${esc(cadence(h))}`}${h.ends_day ? ` · <span class="nowrap">${challengeLine(h)}</span>` : ''}`, h.why, mine && !h.archived_day ? h : null)}
         ${mine ? editPanel(h, false) : ''}
         ${proratedNote(h)}
         <div class="tracker">
@@ -1517,6 +1541,15 @@
               ${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${n === preset.days ? 'selected' : ''}>${n}${n === 7 ? ' (every day)' : ''}</option>`).join('')}
             </select>
           </label>`}
+          ${preset.track?.period === 'week'
+            ? ''
+            : `<label for="${kind}-length">How long
+            <select id="${kind}-length" name="challenge_days">
+              <option value="0" ${preset.challenge ? '' : 'selected'}>Ongoing</option>
+              ${CHALLENGE_DAYS.map((n) => `<option value="${n}" ${n === preset.challenge ? 'selected' : ''}>${n} days</option>`).join('')}
+            </select>
+          </label>
+          <p class="small muted">Pick a length to make it a challenge with a finish line${shared ? '. Day 1 is the day you both agree' : ''}.</p>`}
           <button class="btn primary wide" type="submit">${shared ? 'Propose goal' : 'Add side goal'}</button>
         </form>`;
     }
@@ -1705,7 +1738,7 @@
   const cadence = (x) => {
     if (x.amount_period === 'week' && x.daily_amount > 0) return `${fmtAmount(x.daily_amount, x.unit)} a week`;
     const sched = parseSched(x.schedule);
-    return sched ? schedSummary(sched) : `${x.target_per_week}x a week`;
+    return sched ? schedSummary(sched) : x.target_per_week === 7 ? 'Every day' : `${x.target_per_week}x a week`;
   };
 
   // ---------- log-as-you-go amounts ----------
@@ -1859,6 +1892,7 @@
       case 'goal_declined': text = `${who} passed on ${goal}.`; break;
       case 'goal_withdrawn': text = `${who} withdrew ${goal}.`; break;
       case 'goal_ended': text = `${who} ended the shared goal ${habit}.`; break;
+      case 'challenge_done': text = `${who} finished ${habit}: <strong>${esc(e.message)}</strong> days.`; break;
       case 'amount_changed': text = d.habits.find((h) => h.id === e.habit_id)?.icon === 'check' ? `${who} renamed a goal: ${goal}.` : `${who} set a new number: ${goal}.`; break;
       case 'schedule_changed': text = `${who} changed the wake-up times on ${habit}.`; break;
       case 'nudge': text = `${who} nudged ${whom}${habit ? ` about ${habit}` : ''}.${note}`; break;
@@ -2045,6 +2079,7 @@
         target_per_week: schedule ? Object.keys(schedule).length : f.target_per_week ? Number(f.target_per_week.value) : 1,
         schedule,
         personal: shared && !!preset.personal,
+        challenge_days: f.challenge_days ? Number(f.challenge_days.value) : 0,
         ...(preset.track
           ? {
               daily_amount: Number(f.amount.value) * (preset.track.per || 1),

@@ -82,9 +82,10 @@
       position: 0,
       created_day: today,
       archived_day: null,
+      ends_day: h.ends_after ? L.addDays(today, h.ends_after - 1) : null,
     };
     db.habits.push(habit);
-    if (!goalId) addEvent({ actor_id: userId, habit_id: habit.id, kind: 'habit_added', message: `${habit.target_per_week}x / week` });
+    if (!goalId) addEvent({ actor_id: userId, habit_id: habit.id, kind: 'habit_added', message: h.ends_after ? `${h.ends_after}-day challenge` : `${habit.target_per_week}x / week` });
     return habit;
   }
 
@@ -100,6 +101,7 @@
       out.target_per_week = Object.keys(sched).length;
     }
     out.personal = b.personal ? 1 : 0;
+    out.ends_after = Number(b.challenge_days) || 0;
     if (b.daily_amount) {
       const amount = Number(b.daily_amount);
       const step = Number(b.step);
@@ -115,10 +117,10 @@
   // King's own mornings, used when he agrees to a wake-up goal.
   const KING_WAKE = JSON.stringify({ mon: '06:45', tue: '06:45', wed: '06:45', thu: '06:45', fri: '06:45', sat: '08:30' });
 
-  const goalLabel = (g) => `${g.title} (${g.target_per_week}x / week)`;
+  const goalLabel = (g) => `${g.title} (${g.ends_after ? `${g.ends_after}-day challenge` : `${g.target_per_week}x / week`})`;
 
   function propose(userId, g) {
-    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', daily_amount: g.daily_amount || 0, unit: g.unit || '', step: g.step || 0, amount_period: g.amount_period || 'day', personal: g.personal ? 1 : 0, status: 'proposed' };
+    const goal = { id: id(), partnership_id: db.partnership.id, proposed_by: userId, title: g.title, why: g.why || '', icon: g.icon || 'check', target_per_week: g.target_per_week, schedule: g.schedule || '', daily_amount: g.daily_amount || 0, unit: g.unit || '', step: g.step || 0, amount_period: g.amount_period || 'day', personal: g.personal ? 1 : 0, ends_after: g.ends_after || 0, status: 'proposed' };
     db.goals.push(goal);
     addEvent({ actor_id: userId, kind: 'goal_proposed', message: goalLabel(goal) });
     return goal;
@@ -418,6 +420,7 @@
       const day = b.day || today;
       if (!L.canLog(day, today)) fail(400, 'You can only log today or yesterday');
       if (day < h.created_day) fail(400, 'That habit did not exist yet');
+      if (h.ends_day && day > h.ends_day) fail(400, 'That challenge is over');
       const note = text(b.note, 'Note', { max: 280, required: false });
       if (b.status === 'missed' && !note) fail(400, 'Own the miss: say what got in the way');
       // Same as the server: a wake-up counts only that morning, by 10 past.

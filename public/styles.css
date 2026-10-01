@@ -432,7 +432,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .icon-tile:has(.i-protein) { --tile: var(--c-food-bg); --tint: var(--c-food); }
 .icon-tile:has(.i-calories), .icon-tile:has(.i-calorie-cap), .icon-tile:has(.i-wake) { --tile: var(--c-fire-bg); --tint: var(--c-fire); }
 .icon-tile:has(.i-prayer) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
-.icon-tile:has(.i-run) { --tile: var(--c-move-bg); --tint: var(--c-move); }
+.icon-tile:has(.i-run), .icon-tile:has(.i-sober) { --tile: var(--c-move-bg); --tint: var(--c-move); }
 .icon-tile:has(.i-sleep), .icon-tile:has(.i-read) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
 .hicon { width: 26px; height: 26px; }
 
@@ -824,3 +824,4 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .wake-left small { font: 700 0.72rem var(--font-text); color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.08em; }
 .wake-bar { display: block; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .wake-bar > span { display: block; height: 100%; background: var(--you); border-radius: inherit; transition: width 1s linear; }
+.nowrap { white-space: nowrap; }

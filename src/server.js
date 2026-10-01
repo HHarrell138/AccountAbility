@@ -22,7 +22,7 @@ const NUDGES_PER_DAY = 10;
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 // Must match the icon keys in public/app.js.
-const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake', 'run', 'prayer'];
+const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake', 'run', 'prayer', 'sober'];
 // Logged by typing the amount each time, never a fixed + tap.
 const TYPED_ICONS = ['protein', 'calories'];
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -342,6 +342,7 @@ function createApp({
       goal_proposed: [others, `${e.actor} proposed a shared goal`, `${e.message}. Open the app to agree.`],
       goal_accepted: [others, `${e.actor} agreed to ${e.message}`, 'You’re both on it.'],
       goal_ended: [others, `${e.actor} ended ${e.habit}`, pact],
+      challenge_done: [memberIds(e.partnership_id), `${e.actor} finished ${e.habit}`, `${e.message} days. ${pact}`],
       joined: [others, `${e.actor} joined ${pact}`, 'Agree on your first shared goal.'],
       left: [others, `${e.actor} left ${pact}`, 'Your shared goals there ended.'],
     })[e.kind.replace('_late', '')];
@@ -349,6 +350,10 @@ function createApp({
     if (!who || !who.length) return;
     for (const uid of who) {
       const [, title, body] = say(pactName(e.partnership_id, uid));
+      if (e.kind === 'challenge_done' && uid === e.actor_id) {
+        notify([uid], { title: `You finished ${e.habit}`, body, tag: `${e.partnership_id}-${e.kind}-${e.habit_id}`, url: '/' });
+        continue;
+      }
       notify([uid], { title, body, tag: `${e.partnership_id}-${e.kind}-${e.habit_id || ''}`, url: '/' });
     }
   }
@@ -826,9 +831,30 @@ function createApp({
     return { ok: true };
   });
 
+  // Wrap up challenges past their finish line: the morning after the last
+  // day once it's logged, or the day after that (the last chance to log it
+  // as yesterday). Each one posts its result, and a shared goal ends.
+  function finishChallenges(partnershipId, today) {
+    const due = q('SELECT * FROM habits WHERE partnership_id = ? AND ends_day IS NOT NULL AND ends_day < ? AND finished_day IS NULL AND archived_day IS NULL')
+      .all(partnershipId, today)
+      .filter((h) => today > L.addDays(h.ends_day, 1) || q('SELECT 1 FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, h.ends_day));
+    if (!due.length) return;
+    tx(() => {
+      for (const h of due) {
+        const { done, possible } = L.challengeResult(h, q('SELECT habit_id, day, status FROM checkins WHERE habit_id = ?').all(h.id));
+        q('UPDATE habits SET finished_day = ?, archived_day = ? WHERE id = ?').run(today, L.addDays(h.ends_day, 1), h.id);
+        if (h.goal_id && !q('SELECT 1 FROM habits WHERE goal_id = ? AND archived_day IS NULL').get(h.goal_id)) {
+          q(`UPDATE goals SET status = 'ended', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(h.goal_id);
+        }
+        addEvent({ partnership_id: h.partnership_id, actor_id: h.user_id, habit_id: h.id, kind: 'challenge_done', message: `${done} of ${possible}`, day: h.ends_day });
+      }
+    });
+  }
+
   route('GET', '/api/partnerships/:id/dashboard', ({ user, params, query }) => {
     const p = requireMember(params.id, user.id);
     const today = clientToday(query.get('today'));
+    finishChallenges(p.id, today);
     const ids = memberIds(p.id);
     const members = q(
       `SELECT u.id, u.name, u.username FROM users u JOIN memberships m ON m.user_id = u.id
@@ -960,6 +986,10 @@ function createApp({
     const schedule = parseSchedule(body.schedule);
     const amounts = amountFields(body);
     if (TYPED_ICONS.includes(icon)) amounts.step = 0; // protein and calories: type the amount each time
+    // A finish line: 0 = ongoing, or a length in days (a 30-day challenge).
+    const days = body.challenge_days === undefined || body.challenge_days === null ? 0 : int(body.challenge_days, 'Challenge length', 0, 365);
+    if (days === 1) fail(400, 'A challenge is at least 2 days');
+    if (days && amounts.amount_period === 'week') fail(400, 'A weekly total can’t be a challenge');
     return {
       title: str(body.title, 'Goal', { max: 80 }),
       why: str(body.why, 'Why', { max: 200, required: false }),
@@ -970,6 +1000,7 @@ function createApp({
         : int(body.target_per_week, 'Days per week', 1, 7),
       icon,
       schedule,
+      days,
       ...amounts,
     };
   }
@@ -993,16 +1024,16 @@ function createApp({
 
   route('POST', '/api/habits', ({ user, body }) => {
     const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
-    const { title, why, target, icon, schedule, daily_amount, unit, step, amount_period } = habitFields(body);
+    const { title, why, target, icon, schedule, days, daily_amount, unit, step, amount_period } = habitFields(body);
     const today = clientToday(body.today);
     const { active } = q('SELECT COUNT(*) AS active FROM habits WHERE partnership_id = ? AND user_id = ? AND archived_day IS NULL').get(p.id, user.id);
     if (active >= 10) fail(400, 'Ten habits is plenty. Archive one first.');
     return tx(() => {
       const habit = q(
-        `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, created_day)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-      ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, amount_period, today);
-      addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: `${target}x / week` });
+        `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, created_day, ends_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+      ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, amount_period, today, days ? L.addDays(today, days - 1) : null);
+      addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: days ? `${days}-day challenge` : `${target}x / week` });
       catchUp(habit); // starts with what you already logged today on the same goal elsewhere
       return { habit };
     });
@@ -1083,16 +1114,21 @@ function createApp({
     return { title, daily_amount: round2(amount) };
   }
 
+  // How a goal reads in the feed: "No alcohol (30-day challenge)".
+  function goalLabel(goal) {
+    return `${goal.title} (${goal.ends_after ? `${goal.ends_after}-day challenge` : `${goal.target_per_week}x / week`})`;
+  }
+
   route('POST', '/api/goals', ({ user, body }) => {
     const p = requireMember(int(body.partnership_id, 'partnership_id', 1, Number.MAX_SAFE_INTEGER), user.id);
-    const { title, why, target, icon, schedule, daily_amount, unit, step, amount_period } = habitFields(body);
+    const { title, why, target, icon, schedule, days, daily_amount, unit, step, amount_period } = habitFields(body);
     const { open } = q(`SELECT COUNT(*) AS open FROM goals WHERE partnership_id = ? AND status IN ('proposed', 'active')`).get(p.id);
     if (open >= 10) fail(400, 'Ten shared goals is plenty. End one first.');
     const goal = q(
-      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week, schedule, daily_amount, unit, step, amount_period, personal)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-    ).get(p.id, user.id, title, why, icon, target, schedule, daily_amount, unit, step, amount_period, body.personal ? 1 : 0);
-    addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'goal_proposed', message: `${title} (${target}x / week)` });
+      `INSERT INTO goals (partnership_id, proposed_by, title, why, icon, target_per_week, schedule, daily_amount, unit, step, amount_period, personal, ends_after)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ).get(p.id, user.id, title, why, icon, target, schedule, daily_amount, unit, step, amount_period, body.personal ? 1 : 0, days);
+    addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'goal_proposed', message: goalLabel(goal) });
     return { goal };
   });
 
@@ -1103,7 +1139,7 @@ function createApp({
     requireMember(goal.partnership_id, user.id);
     if (goal.status !== 'proposed') fail(409, 'That goal was already decided');
     const answer = body.answer;
-    const label = `${goal.title} (${goal.target_per_week}x / week)`;
+    const label = goalLabel(goal);
     return tx(() => {
       if (answer === 'withdraw') {
         if (goal.proposed_by !== user.id) fail(403, 'Only the person who proposed it can withdraw it');
@@ -1134,9 +1170,10 @@ function createApp({
         const title = mine ? own.title : goal.title;
         const amount = mine ? own.daily_amount : goal.daily_amount;
         created.push(q(
-          `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, goal_id, created_day)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-        ).get(goal.partnership_id, uid, title, goal.why, target, goal.icon, schedule, amount, goal.unit, Math.min(goal.step, amount || goal.step), goal.amount_period, goal.id, today));
+          `INSERT INTO habits (partnership_id, user_id, title, why, target_per_week, icon, schedule, daily_amount, unit, step, amount_period, goal_id, created_day, ends_day)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+        ).get(goal.partnership_id, uid, title, goal.why, target, goal.icon, schedule, amount, goal.unit, Math.min(goal.step, amount || goal.step), goal.amount_period, goal.id, today,
+          goal.ends_after ? L.addDays(today, goal.ends_after - 1) : null)); // the clock starts when you both agree
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
       created.forEach(catchUp); // each of you picks up what you already logged today in your other pacts
@@ -1153,6 +1190,7 @@ function createApp({
     // No quiet rewriting of history: today, or yesterday (flagged late). That's it.
     if (!L.canLog(day, today)) fail(400, 'You can only log today or yesterday');
     if (day < h.created_day) fail(400, 'That habit did not exist yet');
+    if (h.ends_day && day > h.ends_day) fail(400, 'That challenge is over');
     const status = body.status;
     if (status !== 'done' && status !== 'missed') fail(400, 'status must be done or missed');
     const note = str(body.note, 'Note', { max: 280, required: false });
@@ -1180,7 +1218,7 @@ function createApp({
       // already done; a miss only fills a day that has nothing logged.
       const also = [];
       for (const x of linkedHabits(h)) {
-        if (day < x.created_day) continue;
+        if (day < x.created_day || (x.ends_day && day > x.ends_day)) continue;
         const c = q('SELECT status FROM checkins WHERE habit_id = ? AND day = ?').get(x.id, day);
         if (status === 'done' ? c?.status === 'done' : c) continue;
         writeCheckin(x, day, status, note, late);
@@ -1222,6 +1260,7 @@ function createApp({
     const day = body.day === undefined ? today : body.day;
     if (!L.canLog(day, today)) fail(400, 'You can only log today or yesterday');
     if (day < h.created_day) fail(400, 'That habit did not exist yet');
+    if (h.ends_day && day > h.ends_day) fail(400, 'That challenge is over');
     // reset: back to 0 for that day, here and in your linked pacts.
     const reset = body.reset === true;
     // set: "I'm at 170 g now", the day's new total, instead of adding to it.
@@ -1239,7 +1278,7 @@ function createApp({
       // counted against its own target.
       const also = [];
       for (const x of linkedHabits(h)) {
-        if (day < x.created_day) continue;
+        if (day < x.created_day || (x.ends_day && day > x.ends_day)) continue;
         applyAmount(x, day, change(x), late);
         also.push(pactName(x.partnership_id, x.user_id));
       }

@@ -1002,3 +1002,57 @@ test('wake-up alert: at your time, once, only if not logged yet', async (t) => {
   await server.runWakeAlerts(at('23:59'));
   assert.equal(pushes.length, 0);
 });
+
+test('challenges: a finish line, then the result for both of you', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const yesterday = L.addDays(today, -1);
+  const tomorrow = L.addDays(today, 1);
+  const hank = client(base);
+  const jake = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await jake('POST', '/api/signup', { name: 'Jake', email: 'jake@example.com', password: 'password123' });
+  const p = (await hank('POST', '/api/partnerships', { name: 'Pact', today: yesterday })).data.partnership;
+  await jake('POST', '/api/partnerships/join', { code: p.invite_code });
+
+  const sober = { partnership_id: p.id, title: 'No alcohol', icon: 'sober', target_per_week: 7 };
+  assert.equal((await hank('POST', '/api/habits', { ...sober, challenge_days: 1, today })).status, 400);
+  assert.equal((await hank('POST', '/api/habits', { ...sober, challenge_days: 400, today })).status, 400);
+  assert.equal((await hank('POST', '/api/habits', { partnership_id: p.id, title: 'Run 15 miles a week', icon: 'run', daily_amount: 15, unit: 'mi', step: 1, amount_period: 'week', target_per_week: 1, challenge_days: 30, today })).status, 400);
+
+  // A shared 2-day challenge, agreed yesterday: it runs yesterday and today.
+  const goal = (await hank('POST', '/api/goals', { ...sober, challenge_days: 2, today: yesterday })).data.goal;
+  assert.equal(goal.ends_after, 2);
+  assert.equal((await jake('POST', `/api/goals/${goal.id}/respond`, { answer: 'accept', today: yesterday })).status, 200);
+  let dash = (await hank('GET', `/api/partnerships/${p.id}/dashboard?today=${today}`)).data;
+  const mine = dash.habits.find((h) => h.goal_id === goal.id && h.user_id === dash.me);
+  assert.equal(mine.ends_day, today);
+  assert.match(dash.events.find((e) => e.kind === 'goal_accepted').message, /2-day challenge/);
+
+  await hank('POST', '/api/checkins', { habit_id: mine.id, status: 'done', day: yesterday, today });
+  await hank('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today });
+  assert.equal(dash.habits.find((h) => h.id === mine.id).finished_day, null); // still running today
+
+  // The next morning: Hank logged his last day, so his wraps up. Jake still
+  // has the day to log yesterday, so his (and the shared goal) stay open.
+  assert.equal((await hank('POST', '/api/checkins', { habit_id: mine.id, status: 'done', today: tomorrow })).status, 400);
+  dash = (await jake('GET', `/api/partnerships/${p.id}/dashboard?today=${tomorrow}`)).data;
+  const done = dash.events.filter((e) => e.kind === 'challenge_done');
+  assert.equal(done.length, 1);
+  assert.equal(done[0].message, '2 of 2');
+  assert.equal(done[0].actor_name, 'Hank');
+  assert.equal(dash.goals.find((g) => g.id === goal.id).status, 'active');
+  // Loading again doesn't post it twice.
+  dash = (await hank('GET', `/api/partnerships/${p.id}/dashboard?today=${tomorrow}`)).data;
+  assert.equal(dash.events.filter((e) => e.kind === 'challenge_done').length, 1);
+
+  // Jake logs his last day as yesterday: his wraps up too, and the goal ends.
+  const his = dash.habits.find((h) => h.goal_id === goal.id && h.user_id !== dash.me);
+  assert.equal((await jake('POST', '/api/checkins', { habit_id: his.id, status: 'done', day: today, today: tomorrow })).status, 200);
+  dash = (await jake('GET', `/api/partnerships/${p.id}/dashboard?today=${tomorrow}`)).data;
+  assert.deepEqual(dash.events.filter((e) => e.kind === 'challenge_done').map((e) => e.message), ['1 of 2', '2 of 2']);
+  assert.equal(dash.goals.find((g) => g.id === goal.id), undefined); // ended
+});

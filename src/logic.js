@@ -37,12 +37,15 @@ function weekStart(day) {
 // - Created mid-week: target is capped by the days left, so a new habit is never
 //   an automatic fail.
 // - Archived mid-week: that week still counts. Quitting doesn't erase a bad week.
+// - A challenge's last week (ends_day): capped by the days it still ran.
 function effectiveTarget(habit, start) {
   const end = addDays(start, 6);
   if (habit.created_day > end) return 0;
   if (habit.archived_day && habit.archived_day <= start) return 0;
+  if (habit.ends_day && habit.ends_day < start) return 0;
   const firstDay = habit.created_day > start ? habit.created_day : start;
-  return Math.min(habit.target_per_week, availableDays(habit, firstDay, end));
+  const lastDay = habit.ends_day && habit.ends_day < end ? habit.ends_day : end;
+  return Math.min(habit.target_per_week, availableDays(habit, firstDay, lastDay));
 }
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -224,6 +227,28 @@ function weekRecap(memberIds, habits, checkins, amounts, start) {
   return { start, end, pct: weekPercent(memberIds, habits, checkins, start, amounts).pct, goals, misses };
 }
 
+// ---------- challenges ----------
+//
+// A goal with a finish line ("30 days, no alcohol"): it runs from created_day
+// through ends_day. The result is the days that counted out of the days that
+// could: week by week, never more than that week's target.
+function challengeLength(habit) {
+  return habit.ends_day ? daysBetween(habit.created_day, habit.ends_day) + 1 : 0;
+}
+
+function challengeResult(habit, checkins) {
+  let done = 0;
+  let possible = 0;
+  for (let w = weekStart(habit.created_day); w <= habit.ends_day; w = addDays(w, 7)) {
+    const target = effectiveTarget(habit, w);
+    const end = addDays(w, 6);
+    const n = checkins.filter((c) => c.habit_id === habit.id && c.status === 'done' && c.day >= w && c.day <= end && c.day >= habit.created_day && c.day <= habit.ends_day).length;
+    possible += target;
+    done += Math.min(n, target);
+  }
+  return { done, possible, days: challengeLength(habit) };
+}
+
 const api = {
   isValidDay,
   addDays,
@@ -239,6 +264,8 @@ const api = {
   pairStreak,
   weekRecap,
   canLog,
+  challengeLength,
+  challengeResult,
 };
 
 // Shared with the browser preview build (public/demo.js).
