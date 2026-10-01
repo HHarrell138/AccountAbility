@@ -895,3 +895,5 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .icon-btn.sm { width: 32px; height: 32px; border-radius: 10px; }
 .icon-btn.sm .ui-icon { width: 14px; height: 14px; }
 .wchart-empty { margin: 10px 0 4px; }
+.segments .seg.gap { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); }
+.segments .seg.pad { visibility: hidden; }

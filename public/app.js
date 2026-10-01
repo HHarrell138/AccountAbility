@@ -895,7 +895,9 @@
     const scored = new Map((d.week.members[userId]?.habits || []).map((x) => [x.habit_id, x]));
     const goals = d.habits
       .filter((h) => h.user_id === userId && !h.archived_day && !challengeOver(h) && h.created_day <= d.today)
-      .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(a, b)); // shared first, each in your order
+      // Shared first, in *your* order (your partner's rows follow it too, so
+      // the bars line up), then side goals in their owner's order.
+      .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(inMyOrder(a), inMyOrder(b)));
     const items = goals.map((h) => {
       const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
       const sched = parseSched(h.schedule);
@@ -911,15 +913,34 @@
     return { goals, items, due, done, missed, left: due.length - done - missed };
   }
 
-  // A bar of one segment per goal due today; amount goals fill partway.
-  function daySegments(due) {
-    const d = state.dash;
-    return due
-      .map((i) => {
-        const part = i.status === 'todo' && tracked(i.h) ? Math.min(100, Math.round((amountOn(i.h, d.today) / i.h.daily_amount) * 100)) : 0;
-        return `<span class="seg ${i.status === 'done' ? 'done' : i.status === 'missed' ? 'missed' : ''}"${part ? ` style="--pct:${part}%"` : ''}></span>`;
-      })
-      .join('');
+  // A shared goal sorts by where *you* put it; a side goal by its owner.
+  const inMyOrder = (h) => (h.goal_id && !isMe(h.user_id) ? state.dash.habits.find((x) => x.goal_id === h.goal_id && isMe(x.user_id)) || h : h);
+
+  // One segment for a goal due today; amount goals fill partway.
+  function segment(i) {
+    const part = i.status === 'todo' && tracked(i.h) ? Math.min(100, Math.round((amountOn(i.h, state.dash.today) / i.h.daily_amount) * 100)) : 0;
+    return `<span class="seg ${i.status === 'done' ? 'done' : i.status === 'missed' ? 'missed' : ''}" data-goal="${i.h.goal_id || ''}"${part ? ` style="--pct:${part}%"` : ''}></span>`;
+  }
+
+  // Everyone's bars, lined up: one column per shared goal, in your order, so
+  // the same goal sits in the same spot on every row. A shared goal that's
+  // due for one of you but not the other (a day off, the week's target hit)
+  // leaves an empty outline on the other's row. Side goals come after.
+  function boardBars(statuses) {
+    const sharedIds = [];
+    for (const st of statuses) for (const i of st.due) if (i.h.goal_id && !sharedIds.includes(i.h.goal_id)) sharedIds.push(i.h.goal_id);
+    const mine = statuses[0].goals.filter((h) => h.goal_id).map((h) => h.goal_id);
+    sharedIds.sort((a, b) => (mine.includes(a) ? mine.indexOf(a) : 1e9) - (mine.includes(b) ? mine.indexOf(b) : 1e9));
+    const rows = statuses.map((st) => [
+      ...sharedIds.map((gid) => {
+        const i = st.due.find((x) => x.h.goal_id === gid);
+        return i ? segment(i) : `<span class="seg gap" data-goal="${gid}" title="Not due today"></span>`;
+      }),
+      ...st.due.filter((i) => !i.h.goal_id).map(segment),
+    ]);
+    // Same number of slots on every row, so every column is the same width.
+    const width = Math.max(...rows.map((r) => r.length));
+    return rows.map((r) => [...r, ...Array(width - r.length).fill('<span class="seg pad" aria-hidden="true"></span>')].join(''));
   }
 
   function progressCard() {
@@ -934,16 +955,18 @@
 
     // Everyone's day at a glance: you first, then your partner.
     const people = [...d.members].sort((a, b) => (isMe(a.id) ? -1 : isMe(b.id) ? 1 : 0));
+    const statuses = people.map((m) => (isMe(m.id) ? { goals, due, done, missed, left } : dayStatus(m.id)));
+    const bars = boardBars(statuses);
     const board = people
-      .map((m) => {
-        const st = isMe(m.id) ? { due, done, missed, left } : dayStatus(m.id);
+      .map((m, n) => {
+        const st = statuses[n];
         const all = st.due.length && st.done === st.due.length;
         return `
           <div class="board-row ${whoClass(m.id)}">
             ${avatar(m)}
             <span class="board-name">${isMe(m.id) ? 'You' : esc(m.name)}</span>
             ${st.due.length
-              ? `<div class="segments" role="img" aria-label="${isMe(m.id) ? 'You' : esc(m.name)}: ${st.done} of ${st.due.length} done today">${daySegments(st.due)}</div>
+              ? `<div class="segments" role="img" aria-label="${isMe(m.id) ? 'You' : esc(m.name)}: ${st.done} of ${st.due.length} done today">${bars[n]}</div>
                  <span class="board-num ${all ? 'all' : ''}">${st.done}<span>/${st.due.length}</span></span>`
               : `<span class="board-none">Nothing due today</span>`}
           </div>`;
