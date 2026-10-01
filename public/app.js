@@ -1183,17 +1183,20 @@
       </div>`;
   }
 
-  // The ⋯ menu on a goal: change your own side of it. The number (10,000
-  // steps, 180 g), wake-up times (not which days), your workout day plan,
-  // what one tap of + adds, a custom goal's name, and ending it. How many
-  // days a week is the goal itself, so that's not here.
+  // The ⋯ menu on a goal: change what's yours. Your own number where each
+  // of you sets one (protein, calories) and anything on a side goal; your
+  // wake-up times (not which days); your workout day plan; what one tap of +
+  // adds; and ending it. A number you both agreed on, and days a week, are
+  // the pact itself: changing those means proposing a new goal.
   function editPanel(h, shared) {
     if (!(state.panel?.type === 'edit-goal' && state.panel.habitId === h.id)) return '';
     const d = state.dash;
     const preset = h.icon === 'check' ? null : PRESETS.find((p) => p.icon === h.icon && p.key !== 'custom');
     const partner = d.members.find((m) => !isMe(m.id));
+    const goal = h.goal_id ? d.goals.find((g) => g.id === h.goal_id) : null;
+    const ownNumber = !shared || Boolean(goal?.personal); // side goals, or "each sets their own"
     const fields = [];
-    if (preset?.amount) {
+    if (preset?.amount && ownNumber) {
       const n = tracked(h) ? h.daily_amount / (preset.track?.per || 1) : Number(String(h.title).replace(/[^0-9.]/g, '')) || preset.amount;
       fields.push(`
         <label for="eg-amount-${h.id}">Your goal <span class="muted">(${esc(preset.unit)})</span>
@@ -1201,7 +1204,7 @@
         </label>
         <p class="preview-title">${iconSvg(h.icon)}<span data-role="preview">${esc(h.title)}</span></p>`);
     }
-    if (h.icon === 'check') {
+    if (h.icon === 'check' && !shared) {
       fields.push(`<label for="eg-title-${h.id}">Name<input id="eg-title-${h.id}" name="title" maxlength="80" required value="${esc(h.title)}"></label>`);
     }
     if (tracked(h) && !typed(h)) {
@@ -1237,8 +1240,11 @@
     return `
       <form class="panel edit-goal" data-form="edit-goal" data-habit="${h.id}" ${preset ? `data-preset="${preset.key}"` : ''}>
         <p class="eyebrow">Edit your goal</p>
-        ${fields.join('') || '<p class="small muted">Nothing to change on this one.</p>'}
-        ${shared && (preset?.amount || h.icon === 'check') ? `<p class="small muted">Only your side changes. ${partner ? esc(partner.name) : 'Your partner'} sees it in Activity.</p>` : ''}
+        ${shared && !ownNumber && (preset?.amount || h.icon === 'check')
+          ? `<p class="small muted">You both agreed on <strong>${esc(goal?.title || h.title)}</strong>. To change it, propose a new goal.</p>`
+          : ''}
+        ${fields.join('') || (shared && !ownNumber && (preset?.amount || h.icon === 'check') ? '' : '<p class="small muted">Nothing to change on this one.</p>')}
+        ${shared && ownNumber && preset?.amount ? `<p class="small muted">Only your number changes. ${partner ? esc(partner.name) : 'Your partner'} sees it in Activity.</p>` : ''}
         <div class="row">
           ${fields.length ? '<button class="btn primary" type="submit">Save</button>' : ''}
           <button class="btn" type="button" data-action="close-panel">${fields.length ? 'Cancel' : 'Close'}</button>

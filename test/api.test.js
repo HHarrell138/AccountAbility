@@ -462,12 +462,10 @@ test('personal numbers: each partner sets their own protein goal', async (t) => 
   await b('POST', `/api/goals/${water.id}/respond`, { answer: 'accept', today });
   dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   const myWater = dash.habits.find((h) => h.goal_id === water.id && h.user_id === hankId);
-  // Any shared goal's number can be changed for your own side, and it's on the record.
-  assert.equal((await a('PATCH', `/api/habits/${myWater.id}`, { personal: { title: 'Drink 0.75 gallons of water', daily_amount: 96 } })).status, 200);
-  dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
-  assert.equal(dash.habits.find((h) => h.id === myWater.id).daily_amount, 96);
-  assert.equal(dash.habits.find((h) => h.goal_id === water.id && h.id !== myWater.id).daily_amount, 128); // King's stays
-  assert.deepEqual([dash.events[0].kind, dash.events[0].message], ['amount_changed', 'Drink 0.75 gallons of water']);
+  // A number you both agreed on can't be changed by one person.
+  assert.equal((await a('PATCH', `/api/habits/${myWater.id}`, { personal: { title: 'Drink 0.75 gallons of water', daily_amount: 96 } })).status, 400);
+  // Tap size is only a convenience, so that's still yours.
+  assert.equal((await a('PATCH', `/api/habits/${myWater.id}`, { step: 16 })).status, 200);
 });
 
 test('order: each person sets their own goal order', async (t) => {

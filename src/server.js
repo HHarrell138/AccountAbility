@@ -989,12 +989,15 @@ function createApp({
         }
       });
     }
-    // Change your own number (10,000 steps, 180 g, a gallon) or a custom
-    // goal's name. Only your side changes, and your partner sees it in the
-    // feed, so nobody quietly lowers the bar. How many days a week never
-    // changes here: that's the goal itself.
+    // Change your own number (180 g of protein) or a side goal's name. Only
+    // what's yours: side goals, and shared goals agreed as "each sets their
+    // own number". A number you both agreed on (a gallon, 10,000 steps) is
+    // the pact itself, so changing it means proposing a new goal. Your
+    // partner sees any change in the feed. Days a week never change here.
     if (body.personal !== undefined) {
       if (h.archived_day) fail(400, 'That goal has ended');
+      const goal = h.goal_id ? q('SELECT * FROM goals WHERE id = ?').get(h.goal_id) : null;
+      if (goal && !goal.personal) fail(400, 'You both agreed on that; propose a new goal to change it');
       const own = personalFields(body.personal || {}, h);
       if (own.title !== h.title || own.daily_amount !== h.daily_amount) {
         q('UPDATE habits SET title = ?, daily_amount = ?, step = MIN(step, ?) WHERE id = ?').run(own.title, own.daily_amount, own.daily_amount || 1e9, h.id);
