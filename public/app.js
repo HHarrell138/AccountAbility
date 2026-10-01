@@ -2200,9 +2200,11 @@
   function haptic() {
     try {
       if (navigator.vibrate) {
-        navigator.vibrate(30);
+        navigator.vibrate(60);
         return;
       }
+      // iPhone's switch tick is light and can't be made stronger, so fire it
+      // twice, close enough together to feel like one firmer tap.
       const label = document.createElement('label');
       label.setAttribute('aria-hidden', 'true');
       label.style.cssText = 'position:fixed;left:-100px;top:0;opacity:0;pointer-events:none';
@@ -2212,7 +2214,10 @@
       label.append(input);
       document.body.append(label);
       label.click();
-      label.remove();
+      setTimeout(() => {
+        label.click();
+        label.remove();
+      }, 30);
     } catch {
       // No haptics here; nothing else changes.
     }
