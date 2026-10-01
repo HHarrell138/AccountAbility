@@ -938,3 +938,24 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 /* Sit above a toast instead of under it. */
 body:has(#toast:not([hidden])) .fab { bottom: calc(86px + env(safe-area-inset-bottom)); }
 .add summary .add-close { width: 18px; height: 18px; margin-left: auto; color: var(--muted); }
+
+/* ---------- portrait only ---------- */
+#rotate { display: none; }
+@media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+  #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: var(--bg);
+    color: var(--ink);
+    font-weight: 700;
+  }
+  #rotate svg { width: 44px; height: 44px; color: var(--you); }
+  #app, #toast, .fab, .preview-bar { display: none !important; }
+  html, body { overflow: hidden; }
+}

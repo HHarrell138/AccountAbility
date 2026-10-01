@@ -41,6 +41,10 @@ ${read('public/styles.css')}
 </div>
 <main id="app" aria-live="polite"></main>
 <div id="toast" role="status" hidden></div>
+<div id="rotate" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
+  <p>Turn your phone upright</p>
+</div>
 <script>(function () {
 ${safe(read('src/logic.js'))}
 })();</script>

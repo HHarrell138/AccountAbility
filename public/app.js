@@ -2889,6 +2889,14 @@
     }
   });
 
+  // Portrait only. Android's installed app takes the lock; iPhone ignores it,
+  // so a sideways phone gets the "Turn your phone upright" screen instead.
+  try {
+    screen.orientation?.lock?.('portrait')?.catch(() => {});
+  } catch {
+    /* not supported here */
+  }
+
   // The + slides away while you scroll down and comes back when you scroll up.
   let lastScroll = window.scrollY;
   window.addEventListener('scroll', () => {
