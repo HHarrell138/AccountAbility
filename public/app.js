@@ -569,9 +569,9 @@
     return body;
   }
 
-  // The morning card: from an hour before your wake-up time until the window
-  // closes (10 minutes after), a big "I'm up" button, and once your time
-  // hits, a live countdown of what's left.
+  // The morning card: from an hour before your wake-up time until you log
+  // it (or three hours after), a big "I'm up" button. Log it whenever:
+  // there's no window.
   function wakeCard() {
     const d = state.dash;
     const now = new Date();
@@ -582,42 +582,22 @@
       if (!t) continue;
       if (d.checkins.some((c) => c.habit_id === h.id && c.day === d.today)) continue;
       const at = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-      if (mins < at - 60 || mins >= at + 10) continue;
-      const closes = new Date(now);
-      closes.setHours(Math.floor((at + 10) / 60), (at + 10) % 60, 0, 0);
+      if (mins < at - 60 || mins >= at + 180) continue;
       const started = mins >= at;
       return `
-        <section class="card wake-card ${started ? 'live' : ''}" data-closes="${closes.getTime()}">
+        <section class="card wake-card ${started ? 'live' : ''}">
           <div class="wake-head">
             <span class="icon-tile">${iconSvg('wake')}</span>
             <div>
               <p class="wake-title">${started ? 'Log your wake‑up' : `Wake up by ${esc(clockTime(t))}`}</p>
-              <p class="small muted">${started ? `It counts until ${esc(clockTime(`${String(Math.floor((at + 10) / 60)).padStart(2, '0')}:${String((at + 10) % 60).padStart(2, '0')}`))}.` : 'Up already? Log it now.'}</p>
+              <p class="small muted">${started ? `You were set for ${esc(clockTime(t))}.` : 'Up already? Log it now.'}</p>
             </div>
-            ${started ? `<span class="wake-left"><span data-countdown>${countdownText(closes.getTime() - now.getTime())}</span><small>left</small></span>` : ''}
           </div>
-          ${started ? `<span class="wake-bar"><span data-countdown-bar style="width:${Math.max(0, Math.min(100, ((closes.getTime() - now.getTime()) / 600000) * 100))}%"></span></span>` : ''}
           <button class="btn primary wide" data-action="log-done" data-habit="${h.id}" data-day="${d.today}">${uiIcon('done')}I'm up</button>
         </section>`;
     }
     return '';
   }
-  const countdownText = (ms) => {
-    const s = Math.max(0, Math.ceil(ms / 1000));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  };
-  // Tick the countdown every second without redrawing the page; when it runs
-  // out, redraw so the card goes away.
-  setInterval(() => {
-    const card = app.querySelector('.wake-card[data-closes]');
-    if (!card) return;
-    const left = Number(card.dataset.closes) - Date.now();
-    if (left <= 0) return render();
-    const text = card.querySelector('[data-countdown]');
-    if (text) text.textContent = countdownText(left);
-    const bar = card.querySelector('[data-countdown-bar]');
-    if (bar) bar.style.width = `${Math.min(100, (left / 600000) * 100)}%`;
-  }, 1000);
 
   // New here? A one-time card pointing at How it works.
   function guidePromptCard() {
@@ -694,8 +674,8 @@
         'You can log today and yesterday. Yesterday shows up as late.',
       ])}
       ${section(iconSvg('wake'), 'Wake-up', [
-        'Log it <strong>before your wake-up time, or up to 10 minutes after</strong>. After that it can only be logged as a miss.',
-        'At your time, a card at the top counts down the 10 minutes. Tap <strong>I\'m up</strong>. With notifications on, your phone reminds you right at your time.',
+        'Set a time for each day. When you\'re up, tap the check (or <strong>I\'m up</strong> on the card at the top). It counts whenever you log it.',
+        'With notifications on, your phone reminds you right at your time, and your partner hears when you\'re up.',
         'Each of you has your own time for each day. Change yours from the goal\'s ⋯ menu; the days themselves stay put.',
       ])}
       ${section(iconSvg('sober'), 'Challenges', [
@@ -798,19 +778,15 @@
         control = plusButton(h, c?.status === 'done', 'day', true, day);
       } else if (c?.status === 'done') control = `<span class="tick-mark done">${uiIcon('done')}</span>`;
     } else if (editable) {
-      const closed = c?.status !== 'done' && wakeClosed(h, day);
       control = c?.status === 'done'
         ? `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${day}" aria-label="${esc(title)}: done. Tap to undo.">${uiIcon('done')}</button>`
-        : closed
-          ? c?.status === 'missed' ? `<span class="tick-mark missed">${uiIcon('x')}</span>` : closedMark(closed)
-          : `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${day}" aria-label="Mark ${esc(title)} done">${uiIcon('done')}</button>`;
+        : `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${day}" aria-label="Mark ${esc(title)} done">${uiIcon('done')}</button>`;
     } else if (c?.status === 'done') control = `<span class="tick-mark done">${uiIcon('done')}</span>`;
     else if (c?.status === 'missed') control = `<span class="tick-mark missed">${uiIcon('x')}</span>`;
 
     if (!off && !tracked(h)) {
       if (c?.status === 'missed') detail = `<span class="today-note bad">missed${c.note ? `: “${esc(c.note)}”` : ''}</span>`;
       else if (c?.status === 'done') detail = `<span class="today-note">${c.late ? 'done, logged late' : 'done'}</span>`;
-      else if (wakeClosed(h, day) && !future) detail = `<span class="today-note bad">window closed ${esc(wakeClosed(h, day))}</span>`;
       else if (future) detail = '<span class="today-note">coming up</span>';
       else if (!editable) detail = '<span class="today-note">not logged</span>';
     }
@@ -982,14 +958,10 @@
           control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
         } else if (status === 'missed') {
           control = `<span class="tick-mark missed" aria-label="Missed today">${uiIcon('x')}</span>`;
-        } else if (status === 'todo' && wakeClosed(h, d.today)) {
-          control = closedMark(wakeClosed(h, d.today));
         } else {
           control = `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Mark ${esc(h.title)} done today">${uiIcon('done')}</button>`;
         }
-        const closedAt = status === 'todo' && wakeClosed(h, d.today);
-        const note = closedAt ? '<span class="today-note bad">closed</span>' :
-          status === 'rest' ? '<span class="today-note">week done</span>'
+        const note = status === 'rest' ? '<span class="today-note">week done</span>'
           : status === 'off' ? '<span class="today-note">off today</span>'
           : status === 'missed' ? '<span class="today-note bad">missed</span>'
           : '';
@@ -1291,8 +1263,6 @@
       if (w.todayC?.status === 'done') {
         return `<button class="tick you on" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Done today. Tap to undo.">${uiIcon('done')}</button>`;
       }
-      const closed = !w.todayC && wakeClosed(h, d.today);
-      if (closed) return closedMark(closed);
       return `<button class="tick you" data-action="log-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Mark ${esc(h.title)} done today">${uiIcon('done')}</button>`;
     }
     const done = w.todayC?.status === 'done';
@@ -1733,21 +1703,6 @@
     const planned = parsePlan(h)[dayKey(day)];
     return planned ? `${h.title} · ${planned}` : h.title;
   }
-
-  // A wake-up only counts if you log it that morning, by 10 minutes past
-  // your time (the server checks too). Returns when the window closed, or
-  // null while it's open (or on a day off, or for other goals).
-  function wakeClosed(h, day) {
-    if (h.icon !== 'wake' || !h.schedule) return null;
-    const t = parseSched(h.schedule)?.[dayKey(day)];
-    if (!t) return null;
-    const closes = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) + 10;
-    const at = clockTime(`${String(Math.min(23, Math.floor(closes / 60))).padStart(2, '0')}:${String(closes >= 1440 ? 59 : closes % 60).padStart(2, '0')}`);
-    if (day !== state.dash.today) return day < state.dash.today ? at : null;
-    const now = new Date();
-    return now.getHours() * 60 + now.getMinutes() > closes ? at : null;
-  }
-  const closedMark = (at) => `<span class="tick-mark closed" title="Closed at ${esc(at)}" aria-label="Wake-up window closed at ${esc(at)}">${uiIcon('clock')}</span>`;
 
   function parsePlan(h) {
     try {

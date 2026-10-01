@@ -89,9 +89,10 @@ function localNow(tz, now = new Date()) {
 }
 
 // How long after a wake-up time you can still log it.
-const WAKE_GRACE_MIN = 10;
+// The wake-up alert goes out in the first minutes after your time (the job
+// runs once a minute, so this covers a missed tick or a restart).
+const WAKE_ALERT_MIN = 10;
 const toMinutes = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
-const fromMinutes = (m) => `${String(Math.min(23, Math.floor(m / 60))).padStart(2, '0')}:${String(m >= 24 * 60 ? 59 : m % 60).padStart(2, '0')}`;
 
 // "05:30" -> "5:30 AM"
 function clock(hhmm) {
@@ -452,13 +453,12 @@ function createApp({
         const t = JSON.parse(h.schedule)[dayKey];
         if (!t) return false;
         const from = toMinutes(t);
-        return local.minutes >= from && local.minutes < from + WAKE_GRACE_MIN && h.wake_pinged !== local.day;
+        return local.minutes >= from && local.minutes < from + WAKE_ALERT_MIN && h.wake_pinged !== local.day;
       });
       if (!due) continue;
       for (const h of wakes) q('UPDATE habits SET wake_pinged = ? WHERE id = ?').run(local.day, h.id);
       if (wakes.some((h) => q('SELECT 1 FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, local.day))) continue;
-      const closes = clock(fromMinutes(toMinutes(JSON.parse(due.schedule)[dayKey]) + WAKE_GRACE_MIN));
-      await notify([u.id], { title: 'Time to log your wake-up', body: `You have until ${closes}. Tap to log it.`, tag: 'wake', url: '/' });
+      await notify([u.id], { title: 'Time to get up', body: `It's ${clock(JSON.parse(due.schedule)[dayKey])}. Tap to log your wake-up.`, tag: 'wake', url: '/' });
     }
   }
 
@@ -1226,21 +1226,6 @@ function createApp({
     if (status !== 'done' && status !== 'missed') fail(400, 'status must be done or missed');
     const note = str(body.note, 'Note', { max: 280, required: false });
     if (status === 'missed' && note.length === 0) fail(400, 'Own the miss: say what got in the way');
-    // A wake-up counts only if you log it that morning, by 10 minutes past
-    // your time; after that it can only be a miss. (Days without a time are
-    // off, so anything goes.) The time is checked in your own time zone.
-    if (status === 'done' && h.icon === 'wake' && h.schedule) {
-      const t = JSON.parse(h.schedule)[['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${day}T00:00:00Z`).getUTCDay()]];
-      if (t) {
-        if (day !== today) fail(400, 'A wake-up can only be logged that morning.');
-        const tz = body.tz ? parseTz(body.tz) : q('SELECT tz FROM users WHERE id = ?').get(user.id)?.tz || 'UTC';
-        const now = localNow(tz);
-        const closes = toMinutes(t) + WAKE_GRACE_MIN;
-        if (now.day > day || (now.day === day && now.minutes > closes)) {
-          fail(400, `Too late to count: the window closed at ${clock(fromMinutes(closes))}. You can log it as missed.`);
-        }
-      }
-    }
     const late = day !== today ? 1 : 0;
 
     return tx(() => {

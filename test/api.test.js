@@ -909,7 +909,7 @@ test('plan your days: private to you, carried to linked goals', async (t) => {
   assert.equal((await hank('PATCH', `/api/habits/${water.id}`, { plan: { mon: 'x' } })).status, 400);
 });
 
-test('wake-up: counts only if logged by 10 minutes past your time, that morning', async (t) => {
+test('wake-up: check it off any time, like any other goal', async (t) => {
   const server = createApp();
   await new Promise((r) => server.listen(0, r));
   t.after(() => server.close());
@@ -917,29 +917,16 @@ test('wake-up: counts only if logged by 10 minutes past your time, that morning'
   const today = L.utcToday();
   const hank = client(base);
   await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
-  const pact = (await hank('POST', '/api/partnerships', { today })).data.partnership;
+  const pact = (await hank('POST', '/api/partnerships', { today: L.addDays(today, -1) })).data.partnership;
   const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  const at = (time) => Object.fromEntries(days.map((d) => [d, time]));
-  const wake = async (schedule) => (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule, today })).data.habit;
-  const log = (h, extra = {}) => hank('POST', '/api/checkins', { habit_id: h.id, status: 'done', today, tz: 'UTC', ...extra });
-
-  // Before your time (here 11:59 PM, so always): counts.
-  assert.equal((await log(await wake(at('23:59')))).status, 200);
-
-  // Past the window: refused, but a miss can still be logged.
-  const nowMin = new Date().getUTCHours() * 60 + new Date().getUTCMinutes();
-  if (nowMin > 11) {
-    const early = await wake(at('00:00'));
-    const res = await log(early);
-    assert.equal(res.status, 400);
-    assert.match(res.data.error, /window closed at 12:10 AM/);
-    assert.equal((await hank('POST', '/api/checkins', { habit_id: early.id, status: 'missed', note: 'Slept in', today })).status, 200);
-  }
-
-  // A day with no time is a day off: logging it is fine.
-  const dayKey = days[(new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7];
-  const off = await wake(Object.fromEntries(days.filter((d) => d !== dayKey).map((d) => [d, '00:00'])));
-  assert.equal((await log(off)).status, 200);
+  // 12:00 AM every day: whatever time it is now, it's long past.
+  const schedule = Object.fromEntries(days.map((d) => [d, '00:00']));
+  const wake = (await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule, today: L.addDays(today, -1) })).data.habit;
+  assert.equal((await hank('POST', '/api/checkins', { habit_id: wake.id, status: 'done', today, tz: 'UTC' })).status, 200);
+  // Yesterday too, marked late, the same as every other goal.
+  const late = await hank('POST', '/api/checkins', { habit_id: wake.id, status: 'done', day: L.addDays(today, -1), today });
+  assert.equal(late.status, 200);
+  assert.equal(late.data.checkin.late, 1);
 });
 
 test('protein: type your total so far, and it updates to that', async (t) => {
@@ -984,7 +971,7 @@ test('wake-up alert: at your time, once, only if not logged yet', async (t) => {
   await server.runWakeAlerts(at('06:59'));
   assert.equal(pushes.length, 0); // not yet
   await server.runWakeAlerts(at('07:00'));
-  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Time to log your wake-up', 'You have until 7:10 AM. Tap to log it.']]);
+  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Time to get up', "It's 7:00 AM. Tap to log your wake-up."]]);
   await server.runWakeAlerts(at('07:04'));
   assert.equal(pushes.length, 1); // once a morning
 
