@@ -1018,7 +1018,8 @@
       </form>`;
   }
 
-  // Your number under a personal goal's row, with Edit number on your own.
+  // Your number under a personal goal's row (the calorie cap, which has no
+  // running total to show it).
   function numberRow(h, shared) {
     if (!personalPreset(h.icon)) return '';
     if (state.panel?.type === 'edit-number' && state.panel.habitId === h.id) {
@@ -1026,12 +1027,11 @@
     }
     const mine = isMe(h.user_id) && !h.archived_day;
     if (!shared && !mine) return '';
-    // Logged goals already show the number ("0 / 180g today"), with Edit number beside Tap size.
+    // Logged goals already show the number ("0 / 180g today").
     if (tracked(h)) return '';
     return `
       <div class="row-sched">
         ${uiIcon('flame')}<span>${esc(h.title)}</span>
-        ${mine ? `<button class="link" data-action="edit-number" data-habit="${h.id}">Edit number</button>` : ''}
       </div>`;
   }
 
@@ -1648,7 +1648,6 @@
           ? `<span class="amount-tools">
                ${got > 0 && h.step > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
                ${h.step > 0 ? `<button class="link" data-action="open-amount" data-where="card" data-habit="${h.id}">Add…</button>` : ''}
-               ${personalPreset(h.icon) ? `<button class="link quiet" data-action="edit-number" data-habit="${h.id}">Edit number</button>` : ''}
                ${typed(h) ? '' : `<button class="link quiet" data-action="open-step" data-habit="${h.id}">Tap size</button>`}
                ${got > 0 ? `<button class="link quiet" data-action="reset-amount" data-habit="${h.id}">${weekly(h) ? 'Reset today' : 'Reset'}</button>` : ''}
              </span>`
