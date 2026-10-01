@@ -213,7 +213,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .settings-card label, .settings-card p { margin: 0; }
 .settings-card .btn:not(.wide) { justify-self: start; }
 .settings-card + .btn.wide { margin-top: 20px; }
-.pacts-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.pacts-foot { display: grid; justify-items: start; gap: 12px; margin-top: 14px; }
 .pact-row.editing { cursor: default; }
 .left-list { display: grid; gap: 8px; margin: 0 0 14px; }
 .left-list .eyebrow { margin: 0; }
@@ -795,3 +795,20 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .edit-goal .plan-grid { margin: 0; }
 .sched-row.times-only { grid-template-columns: 2.6rem minmax(0, 1fr) 3.4rem; }
 .end-link { justify-self: start; padding: 4px 0 0; font-size: 0.85rem; }
+
+/* ---------- how it works ---------- */
+
+.guide-short { margin-top: 14px; }
+.guide-short .eyebrow { margin: 0 0 8px; }
+.guide-steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 10px; }
+.guide-steps .ui-icon.inline { width: 16px; height: 16px; vertical-align: -3px; color: var(--you); }
+.guide-section { margin-top: 10px; padding-top: 14px; padding-bottom: 14px; }
+.guide-section > summary { display: flex; align-items: center; gap: 12px; list-style: none; cursor: pointer; }
+.guide-section > summary::-webkit-details-marker { display: none; }
+.guide-section .guide-h { flex: 1 1 auto; font: 700 1.05rem var(--font-display); }
+.guide-section .chev { width: 18px; height: 18px; color: var(--muted); transition: transform 0.2s; }
+.guide-section[open] .chev { transform: rotate(180deg); }
+.guide-list { margin: 12px 0 0; padding-left: 1.1rem; display: grid; gap: 8px; color: var(--ink); font-size: 0.93rem; line-height: 1.45; }
+.guide-list li::marker { color: var(--you); }
+.guide-done { margin-top: 18px; }
+.guide-prompt { margin-bottom: 0; }

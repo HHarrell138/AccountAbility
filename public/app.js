@@ -216,6 +216,7 @@
 
   function render() {
     if (!state.user) app.innerHTML = authView();
+    else if (state.view === 'guide') app.innerHTML = guideView();
     else if (state.view === 'settings') app.innerHTML = settingsView();
     else if (state.view === 'day' && state.dash) app.innerHTML = dayView();
     else if (!state.pid || !state.dash) app.innerHTML = onboardView();
@@ -308,6 +309,7 @@
       ${state.left?.length ? `<section class="card">${recentlyLeft()}</section>` : ''}
       <footer class="foot">
         ${state.partnerships.length ? `<button class="link" data-action="back-to-pact">Back to my pact</button>` : ''}
+        <button class="link" data-action="open-guide">How it works</button>
         <button class="link" data-action="logout">Log out</button>
       </footer>`;
   }
@@ -343,6 +345,7 @@
       </header>
       ${state.pactsOpen ? pactsMenu() : ''}
 
+      ${store('aa.guideSeen') ? '' : guidePromptCard()}
       ${progressCard()}
       ${pushPromptCard()}
       ${waiting ? inviteCard() : ''}
@@ -496,6 +499,7 @@
           : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
              <div class="pacts-foot">
                <button class="link" data-action="edit-pacts">Edit pacts</button>
+               <button class="link" data-action="open-guide">How it works</button>
                ${window.AA_DEMO ? '' : `<button class="link" data-action="open-settings">Account settings</button>`}
              </div>`}
       </section>`;
@@ -537,6 +541,22 @@
     return body;
   }
 
+  // New here? A one-time card pointing at How it works.
+  function guidePromptCard() {
+    return `
+      <section class="card push-prompt guide-prompt">
+        <span class="icon-tile">${uiIcon('pact')}</span>
+        <div>
+          <p><strong>New here?</strong></p>
+          <p class="small muted">A one-minute walkthrough of logging, the streak and your pacts. You can find it later by tapping your circles at the top.</p>
+          <div class="row">
+            <button class="btn small primary" data-action="open-guide">Show me</button>
+            <button class="btn small" data-action="guide-later">Not now</button>
+          </div>
+        </div>
+      </section>`;
+  }
+
   // A one-time nudge on the dashboard to turn notifications on.
   function pushPromptCard() {
     if (!pushSupported() || state.pushOn || Notification.permission === 'denied' || store('aa.pushPrompt')) return '';
@@ -553,6 +573,79 @@
           </div>
         </div>
       </section>`;
+  }
+
+  // How it works: a short version up top, then one tap-to-open section per
+  // topic, so a new person can skim it in a minute and come back for detail.
+  function guideView() {
+    const section = (icon, title, points) => `
+      <details class="card guide-section">
+        <summary><span class="icon-tile sm">${icon}</span><span class="guide-h">${title}</span>${uiIcon('chevron', 'chev')}</summary>
+        <ul class="guide-list">${points.map((p) => `<li>${p}</li>`).join('')}</ul>
+      </details>`;
+    return `
+      <header class="settings-top">
+        <button class="back" data-action="close-settings">${uiIcon('chevron', 'back-chev')}Back</button>
+      </header>
+      <h1 class="title">How it works</h1>
+      <p class="lede">Goals you keep because someone's counting on you.</p>
+
+      <section class="card guide-short">
+        <p class="eyebrow">The short version</p>
+        <ol class="guide-steps">
+          <li><strong>Make a pact with one person.</strong> Agree on shared goals; you're both held to them.</li>
+          <li><strong>Log as you go.</strong> Tap ${uiIcon('done', 'inline')} when it's done. For protein and calories, type your total so far.</li>
+          <li><strong>The streak bar is both of you, together.</strong> Get it to 70% each week to keep the streak alive.</li>
+          <li><strong>Miss something? Say why.</strong> Your partner sees it.</li>
+        </ol>
+      </section>
+
+      ${section(uiIcon('pact'), 'Pacts and goals', [
+        'A pact is you and one other person. Start one, tap <strong>Share invite link</strong>, and they land in it as soon as they sign up.',
+        '<strong>Shared goals:</strong> one of you proposes, the other agrees. Requests wait under <strong>Needs your yes</strong>.',
+        'Some shared goals let each of you set your own number (protein, calories) or your own times (wake-up).',
+        '<strong>Side goals</strong> are just yours. Your partner can see them, but they don\'t count toward the streak.',
+        "On your partner's row, the bell nudges them. Once they're done it turns into a star, so you can cheer them on.",
+      ])}
+      ${section(iconSvg('water'), 'Logging', [
+        '<strong>Check-off goals</strong> (workout, prayer, steps): tap the check. Tap it again, or Undo, to take it back.',
+        '<strong>Water:</strong> each tap of + adds 8 oz. <strong>Add…</strong> types a bigger amount, and <strong>Reset</strong> sets today back to 0.',
+        "<strong>Protein and calories: you update, you don't add.</strong> Tap + and type where you're at now. At 30 g earlier and 170 g now? Type 170.",
+        '<strong>Run:</strong> miles add up across the week. Each tap of + is a mile.',
+        "<strong>Missed it?</strong> You have to say what got in the way, and your partner sees it.",
+        'You can log today and yesterday. Yesterday shows up as late.',
+      ])}
+      ${section(iconSvg('wake'), 'Wake-up', [
+        'Log it <strong>before your wake-up time, or up to 10 minutes after</strong>. After that it can only be logged as a miss.',
+        'Each of you has your own time for each day. Change yours from the goal\'s ⋯ menu; the days themselves stay put.',
+      ])}
+      ${section(uiIcon('clock'), 'Days and the week', [
+        '<strong>Tap any circle</strong> to see that whole day: every goal, how close you got, and how your partner did.',
+        'Today and yesterday can be logged there. Earlier days are just to look at, and later days show what\'s coming up.',
+      ])}
+      ${section(uiIcon('flame'), 'The streak', [
+        "<strong>One bar for both of you.</strong> Each of you fills half, so one person doing everything only gets it to 50%.",
+        'Every log moves it: 3 of 4 workouts is 75% of that goal.',
+        '<strong>70% or more</strong> for the week keeps the streak (blue). <strong>100%</strong> turns it green. <strong>Three 100% weeks</strong> in a row: gold.',
+        'A 70 to 99% week drops it a level. Under 70% breaks it.',
+        'From Sunday to Tuesday, the <strong>weekly recap</strong> shows how the week went, including every miss and the reason for it.',
+      ])}
+      ${section(uiIcon('dots'), 'Changing your goals', [
+        "Tap <strong>⋯</strong> on a goal to change what's yours: your number on protein or calories, your wake-up times, your workout day plan (Mon Push, Tue Legs…), the tap size, or to end it.",
+        '<strong>Numbers you both agreed on</strong> (a gallon, 10,000 steps) and days per week can\'t be changed. Propose a new goal instead.',
+        '<strong>Reorder</strong>, next to each section heading, puts your goals in the order you want.',
+      ])}
+      ${section(uiIcon('pact'), 'More than one pact', [
+        'Tap your two circles at the top to switch pacts, <strong>rename</strong> them (only you see the name), or leave one. Leaving can be undone for 24 hours.',
+        'Have the same goal in two pacts? <strong>Log it once</strong> and it counts in both.',
+      ])}
+      ${section(uiIcon('bell'), 'Notifications and your account', [
+        '<strong>Add AccountAbility to your Home Screen</strong> (on iPhone: Share, then Add to Home Screen) and open it from there.',
+        "Turn on notifications to hear when your partner joins, wakes up, hits every goal for the day, or nudges you. There's also an evening reminder if you still have goals open.",
+        '<strong>Account settings</strong> (tap your circles at the top) has your email, password and notifications.',
+        'Forgot your password? On the log in screen, tap <strong>Forgot your password?</strong> and you\'ll get a code by email.',
+      ])}
+      <button class="btn primary wide guide-done" data-action="close-settings">Got it</button>`;
   }
 
   // One day, every goal: tap any circle to get here. Today and yesterday can
@@ -2272,6 +2365,18 @@
     },
     async 'push-prompt-on'() {
       await enablePush();
+    },
+    'open-guide'() {
+      state.view = 'guide';
+      state.pactsOpen = false;
+      store('aa.guideSeen', '1');
+      history.pushState({ view: 'guide' }, '');
+      render();
+      window.scrollTo(0, 0);
+    },
+    'guide-later'() {
+      store('aa.guideSeen', '1');
+      render();
     },
     'open-settings'() {
       state.view = 'settings';
