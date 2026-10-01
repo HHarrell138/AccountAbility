@@ -1184,9 +1184,13 @@ function createApp({
     if (day < h.created_day) fail(400, 'That habit did not exist yet');
     // reset: back to 0 for that day, here and in your linked pacts.
     const reset = body.reset === true;
+    // set: "I'm at 170 g now", the day's new total, instead of adding to it.
+    const set = body.set === undefined ? null : Number(body.set);
+    if (set !== null && (!Number.isFinite(set) || set < 0 || set > 100000)) fail(400, 'Enter your total so far');
     const delta = Number(body.delta);
-    if (!reset && (!Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 100000)) fail(400, 'Enter an amount');
-    const change = (x) => (reset ? -(q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(x.id, day)?.amount || 0) : delta);
+    if (!reset && set === null && (!Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 100000)) fail(400, 'Enter an amount');
+    const current = (x) => q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(x.id, day)?.amount || 0;
+    const change = (x) => (reset ? -current(x) : set !== null ? round2(set - current(x)) : delta);
 
     const late = day !== today ? 1 : 0;
     return tx(() => {

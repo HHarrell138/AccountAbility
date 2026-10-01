@@ -935,3 +935,27 @@ test('wake-up: counts only if logged by 10 minutes past your time, that morning'
   const off = await wake(Object.fromEntries(days.filter((d) => d !== dayKey).map((d) => [d, '00:00'])));
   assert.equal((await log(off)).status, 200);
 });
+
+test('protein: type your total so far, and it updates to that', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  const a = (await hank('POST', '/api/partnerships', { name: 'A', today })).data.partnership;
+  const b = (await hank('POST', '/api/partnerships', { name: 'B', today })).data.partnership;
+  const goal = { title: 'Eat 185g of protein', icon: 'protein', target_per_week: 7, daily_amount: 185, unit: 'g', today };
+  const pa = (await hank('POST', '/api/habits', { partnership_id: a.id, ...goal })).data.habit;
+  const pb = (await hank('POST', '/api/habits', { partnership_id: b.id, ...goal })).data.habit;
+  const set = (n) => hank('POST', '/api/amounts', { habit_id: pa.id, set: n, today }).then((r) => r.data);
+
+  assert.deepEqual(await set(30), { amount: 30, total: 30, done: false, also: ['B'] });
+  assert.deepEqual(await set(170), { amount: 170, total: 170, done: false, also: ['B'] }); // not 200
+  assert.equal((await set(190)).done, true);
+  assert.equal((await set(150)).done, false); // typo fixed: back under, not done
+  const dash = (await hank('GET', `/api/partnerships/${b.id}/dashboard?today=${today}`)).data;
+  assert.equal(dash.amounts.find((x) => x.habit_id === pb.id).amount, 150); // the linked pact matches exactly
+  assert.equal((await hank('POST', '/api/amounts', { habit_id: pa.id, set: -5, today })).status, 400);
+});

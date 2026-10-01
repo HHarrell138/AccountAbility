@@ -1582,6 +1582,21 @@
         </form>`;
     }
     const day = p?.day && p.day !== state.dash.today ? p.day : null; // tapped an earlier day's circle
+    // Protein and calories: type where you're at now, like reading it off
+    // MyFitnessPal. 30 g earlier and 170 g now? Type 170.
+    if (typed(h)) {
+      const have = amountOn(h, day || state.dash.today);
+      return `
+      <form class="panel" data-form="amount-total" data-habit="${h.id}" ${day ? `data-day="${day}"` : ''}>
+        <label for="amount-${h.id}">Where are you at${day ? ` for ${esc(dayName(day))}` : ' today'}? <span class="muted">(${esc(UNIT_NAMES[h.unit] || h.unit)} total, of ${esc(fmtAmount(h.daily_amount, h.unit))})</span>
+          <input id="amount-${h.id}" name="amount" type="number" inputmode="decimal" step="any" min="0" required placeholder="${have ? `${fmtAmount(have, '')} so far` : h.unit === 'g' ? 'e.g. 120' : 'e.g. 1800'}" data-autofocus>
+        </label>
+        <div class="row">
+          <button class="btn primary" type="submit">Update</button>
+          <button class="btn" type="button" data-action="close-panel">Cancel</button>
+        </div>
+      </form>`;
+    }
     return `
       <form class="panel" data-form="amount" data-habit="${h.id}" ${day ? `data-day="${day}"` : ''}>
         <label for="amount-${h.id}">How many ${esc(UNIT_NAMES[h.unit] || h.unit)}${day ? ` on ${esc(dayName(day))}` : ''}?${day ? ` <span class="muted">(${esc(fmtAmount(amountOn(h, day), h.unit))} so far, marked late)</span>` : ''}
@@ -1749,6 +1764,25 @@
     });
   }
 
+  // Set the day's total ("I'm at 170 g"); Undo puts the old total back.
+  async function setAmount(habitId, total, day) {
+    if (day === state.dash.today) day = undefined;
+    const h = state.dash.habits.find((x) => x.id === habitId);
+    const before = amountOn(h, day || state.dash.today);
+    if (total === before) return render();
+    const on = day ? { day } : {};
+    const res = await api('POST', '/api/amounts', { habit_id: habitId, set: total, today: localToday(), ...on });
+    await refresh();
+    const where = `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
+    toast(`${res.done && before < h.daily_amount ? `${where}. Goal hit.` : `Now at ${where}.`}${alsoIn(res)}`, {
+      label: 'Undo',
+      run: async () => {
+        await api('POST', '/api/amounts', { habit_id: habitId, set: before, today: localToday(), ...on });
+        await refresh();
+      },
+    });
+  }
+
   async function logDone(habitId, day) {
     const res = await api('POST', '/api/checkins', { habit_id: habitId, day, status: 'done', today: localToday(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
     state.panel = null;
@@ -1900,6 +1934,12 @@
       state.panel = null;
       toast(n ? `Each tap now adds ${n}.` : 'You’ll type the amount each time.');
       await refresh();
+    },
+    async 'amount-total'(f) {
+      const n = Number(f.amount.value);
+      if (!Number.isFinite(n) || n < 0) throw new Error('Enter your total so far');
+      state.panel = null;
+      await setAmount(Number(f.dataset.habit), n, f.dataset.day);
     },
     async amount(f) {
       const n = Number(f.amount.value);
@@ -2323,6 +2363,10 @@
     if (!f) return;
     ev.preventDefault();
     if (f.dataset.form === 'amount') amountHaptic(Number(f.dataset.habit), Number(f.amount.value), f.dataset.day);
+    if (f.dataset.form === 'amount-total') {
+      const h = state.dash?.habits.find((x) => x.id === Number(f.dataset.habit));
+      if (h) amountHaptic(h.id, Number(f.amount.value) - amountOn(h, f.dataset.day || state.dash.today), f.dataset.day);
+    }
     const btn = f.querySelector('[type=submit]');
     if (btn) btn.disabled = true;
     guarded(() => forms[f.dataset.form](f)).finally(() => {
