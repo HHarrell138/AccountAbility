@@ -190,6 +190,8 @@ function migrate(db) {
   // Your own plan for a goal's days, e.g. {"mon":"Push","tue":"Legs"}. Only
   // you see it; your partner plans their own.
   if (!habitCols.includes('plan')) db.exec("ALTER TABLE habits ADD COLUMN plan TEXT NOT NULL DEFAULT ''");
+  // The last day a wake-up goal sent its "time to log it" alert (once a day).
+  if (!habitCols.includes('wake_pinged')) db.exec('ALTER TABLE habits ADD COLUMN wake_pinged TEXT');
   // Your own name for a pact ("King"), which only you see. NULL = the name
   // it was started with.
   const memberCols = db.prepare('PRAGMA table_info(memberships)').all().map((c) => c.name);

@@ -345,6 +345,7 @@
       </header>
       ${state.pactsOpen ? pactsMenu() : ''}
 
+      ${wakeCard()}
       ${store('aa.guideSeen') ? '' : guidePromptCard()}
       ${progressCard()}
       ${pushPromptCard()}
@@ -541,6 +542,56 @@
     return body;
   }
 
+  // The morning card: from an hour before your wake-up time until the window
+  // closes (10 minutes after), a big "I'm up" button, and once your time
+  // hits, a live countdown of what's left.
+  function wakeCard() {
+    const d = state.dash;
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    for (const h of d.habits) {
+      if (!isMe(h.user_id) || h.archived_day || h.icon !== 'wake' || h.created_day > d.today) continue;
+      const t = parseSched(h.schedule)?.[dayKey(d.today)];
+      if (!t) continue;
+      if (d.checkins.some((c) => c.habit_id === h.id && c.day === d.today)) continue;
+      const at = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+      if (mins < at - 60 || mins >= at + 10) continue;
+      const closes = new Date(now);
+      closes.setHours(Math.floor((at + 10) / 60), (at + 10) % 60, 0, 0);
+      const started = mins >= at;
+      return `
+        <section class="card wake-card ${started ? 'live' : ''}" data-closes="${closes.getTime()}">
+          <div class="wake-head">
+            <span class="icon-tile">${iconSvg('wake')}</span>
+            <div>
+              <p class="wake-title">${started ? 'Log your wake‑up' : `Wake up by ${esc(clockTime(t))}`}</p>
+              <p class="small muted">${started ? `It counts until ${esc(clockTime(`${String(Math.floor((at + 10) / 60)).padStart(2, '0')}:${String((at + 10) % 60).padStart(2, '0')}`))}.` : 'Up already? Log it now.'}</p>
+            </div>
+            ${started ? `<span class="wake-left"><span data-countdown>${countdownText(closes.getTime() - now.getTime())}</span><small>left</small></span>` : ''}
+          </div>
+          ${started ? `<span class="wake-bar"><span data-countdown-bar style="width:${Math.max(0, Math.min(100, ((closes.getTime() - now.getTime()) / 600000) * 100))}%"></span></span>` : ''}
+          <button class="btn primary wide" data-action="log-done" data-habit="${h.id}" data-day="${d.today}">${uiIcon('done')}I'm up</button>
+        </section>`;
+    }
+    return '';
+  }
+  const countdownText = (ms) => {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  // Tick the countdown every second without redrawing the page; when it runs
+  // out, redraw so the card goes away.
+  setInterval(() => {
+    const card = app.querySelector('.wake-card[data-closes]');
+    if (!card) return;
+    const left = Number(card.dataset.closes) - Date.now();
+    if (left <= 0) return render();
+    const text = card.querySelector('[data-countdown]');
+    if (text) text.textContent = countdownText(left);
+    const bar = card.querySelector('[data-countdown-bar]');
+    if (bar) bar.style.width = `${Math.min(100, (left / 600000) * 100)}%`;
+  }, 1000);
+
   // New here? A one-time card pointing at How it works.
   function guidePromptCard() {
     return `
@@ -617,6 +668,7 @@
       ])}
       ${section(iconSvg('wake'), 'Wake-up', [
         'Log it <strong>before your wake-up time, or up to 10 minutes after</strong>. After that it can only be logged as a miss.',
+        'At your time, a card at the top counts down the 10 minutes. Tap <strong>I\'m up</strong>. With notifications on, your phone reminds you right at your time.',
         'Each of you has your own time for each day. Change yours from the goal\'s ⋯ menu; the days themselves stay put.',
       ])}
       ${section(uiIcon('clock'), 'Days and the week', [

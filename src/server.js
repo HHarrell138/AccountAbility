@@ -425,7 +425,42 @@ function createApp({
       await notify([u.id], { title: `${left.length} goal${left.length === 1 ? '' : 's'} left today`, body: `${titles}.${who}`, tag: 'reminder', url: '/' });
     }
   }
-  setInterval(() => runReminders().catch((err) => console.error('reminders:', err.message)), 60 * 1000).unref();
+  // At your wake-up time: "Time to log your wake-up, until 5:40 AM". Once a
+  // morning, in your time zone, only if it isn't logged yet, and only while
+  // the window is still open (so a server hiccup never sends a stale one).
+  async function runWakeAlerts(now = new Date()) {
+    const users = q('SELECT * FROM users WHERE tz IS NOT NULL AND id IN (SELECT user_id FROM push_subs)').all();
+    for (const u of users) {
+      let local;
+      try {
+        local = localNow(u.tz, now);
+      } catch {
+        continue;
+      }
+      const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(`${local.day}T00:00:00Z`).getUTCDay()];
+      const wakes = q(
+        `SELECT h.* FROM habits h JOIN memberships m ON m.partnership_id = h.partnership_id AND m.user_id = h.user_id
+         WHERE h.user_id = ? AND h.icon = 'wake' AND h.archived_day IS NULL AND h.schedule != '' AND h.created_day <= ?`
+      ).all(u.id, local.day);
+      // The same wake-up linked across pacts is one alert.
+      const due = wakes.find((h) => {
+        const t = JSON.parse(h.schedule)[dayKey];
+        if (!t) return false;
+        const from = toMinutes(t);
+        return local.minutes >= from && local.minutes < from + WAKE_GRACE_MIN && h.wake_pinged !== local.day;
+      });
+      if (!due) continue;
+      for (const h of wakes) q('UPDATE habits SET wake_pinged = ? WHERE id = ?').run(local.day, h.id);
+      if (wakes.some((h) => q('SELECT 1 FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, local.day))) continue;
+      const closes = clock(fromMinutes(toMinutes(JSON.parse(due.schedule)[dayKey]) + WAKE_GRACE_MIN));
+      await notify([u.id], { title: 'Time to log your wake-up', body: `You have until ${closes}. Tap to log it.`, tag: 'wake', url: '/' });
+    }
+  }
+
+  setInterval(() => {
+    runReminders().catch((err) => console.error('reminders:', err.message));
+    runWakeAlerts().catch((err) => console.error('wake alerts:', err.message));
+  }, 60 * 1000).unref();
 
   // ---------- handlers ----------
 
@@ -1384,6 +1419,7 @@ function createApp({
 
   server.on('close', () => db.close());
   server.runReminders = runReminders; // for tests
+  server.runWakeAlerts = runWakeAlerts;
   return server;
 }
 

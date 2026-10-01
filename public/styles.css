@@ -812,3 +812,15 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .guide-list li::marker { color: var(--you); }
 .guide-done { margin-top: 18px; }
 .guide-prompt { margin-bottom: 0; }
+
+/* ---------- the morning wake-up card ---------- */
+
+.wake-card { display: grid; gap: 12px; border-color: var(--accent-line); }
+.wake-card.live { border-color: var(--you); }
+.wake-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.wake-head p { margin: 0; }
+.wake-title { font: 800 1.15rem var(--font-display); }
+.wake-left { display: grid; justify-items: center; font: 800 1.7rem/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--you); }
+.wake-left small { font: 700 0.72rem var(--font-text); color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.08em; }
+.wake-bar { display: block; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.wake-bar > span { display: block; height: 100%; background: var(--you); border-radius: inherit; transition: width 1s linear; }

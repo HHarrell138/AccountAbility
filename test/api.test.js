@@ -965,3 +965,40 @@ test('protein: type your total so far, and it updates to that', async (t) => {
   assert.equal(dash.amounts.find((x) => x.habit_id === pb.id).amount, 150); // the linked pact matches exactly
   assert.equal((await hank('POST', '/api/amounts', { habit_id: pa.id, set: -5, today })).status, 400);
 });
+
+test('wake-up alert: at your time, once, only if not logged yet', async (t) => {
+  const pushes = [];
+  const server = createApp({ sendPush: async (sub, msg) => (pushes.push(msg), 201) });
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await hank('POST', '/api/push/subscribe', { subscription: { endpoint: 'https://web.push.apple.com/x', keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } }, tz: 'UTC' });
+  const pact = (await hank('POST', '/api/partnerships', { today })).data.partnership;
+  const all = (time) => Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, time]));
+  await hank('POST', '/api/habits', { partnership_id: pact.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule: all('07:00'), today });
+  const at = (hhmm) => new Date(`${today}T${hhmm}:00Z`);
+
+  await server.runWakeAlerts(at('06:59'));
+  assert.equal(pushes.length, 0); // not yet
+  await server.runWakeAlerts(at('07:00'));
+  assert.deepEqual(pushes.map((p) => [p.title, p.body]), [['Time to log your wake-up', 'You have until 7:10 AM. Tap to log it.']]);
+  await server.runWakeAlerts(at('07:04'));
+  assert.equal(pushes.length, 1); // once a morning
+
+  await server.runWakeAlerts(at('07:11')); // past the window: nothing stale
+  assert.equal(pushes.length, 1);
+
+  // Already logged (up early): no alert at the time.
+  const josh = client(base);
+  await josh('POST', '/api/signup', { name: 'Josh', email: 'josh@example.com', password: 'password123' });
+  await josh('POST', '/api/push/subscribe', { subscription: { endpoint: 'https://web.push.apple.com/y', keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } }, tz: 'UTC' });
+  const jp = (await josh('POST', '/api/partnerships', { today })).data.partnership;
+  const w = (await josh('POST', '/api/habits', { partnership_id: jp.id, title: 'Wake up', icon: 'wake', target_per_week: 7, schedule: all('23:59'), today })).data.habit;
+  assert.equal((await josh('POST', '/api/checkins', { habit_id: w.id, status: 'done', today, tz: 'UTC' })).status, 200);
+  pushes.length = 0;
+  await server.runWakeAlerts(at('23:59'));
+  assert.equal(pushes.length, 0);
+});
