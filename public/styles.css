@@ -781,6 +781,17 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 .plan-grid { display: grid; gap: 8px; margin: 10px 0 12px; }
 .plan-day { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr); align-items: center; gap: 10px; margin: 0; font-weight: 700; font-size: 0.9rem; }
 .plan-day input { margin: 0; padding: 9px 12px; }
-.plan-offer { grid-column: 1 / -1; padding-left: 0; }
-.plan-offer .link { padding: 0; font-size: 0.82rem; }
 .tick-mark.closed { color: var(--muted); background: var(--surface-2); box-shadow: inset 0 0 0 1.5px var(--line); }
+
+/* ---------- the ⋯ menu on a goal ---------- */
+
+.card-menu { flex: 0 0 auto; display: grid; place-items: center; width: 36px; height: 36px; margin: -4px -6px 0 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.card-menu .ui-icon { width: 22px; height: 22px; }
+.card-menu:active, .card-menu[aria-expanded="true"] { background: var(--surface-2); color: var(--ink); }
+.edit-goal { margin-top: 12px; display: grid; gap: 10px; }
+.edit-goal .eyebrow { margin: 0; }
+.edit-goal label, .edit-goal p { margin: 0; }
+.edit-goal .preview-title { margin: 0; }
+.edit-goal .plan-grid { margin: 0; }
+.sched-row.times-only { grid-template-columns: 2.6rem minmax(0, 1fr) 3.4rem; }
+.end-link { justify-self: start; padding: 4px 0 0; font-size: 0.85rem; }

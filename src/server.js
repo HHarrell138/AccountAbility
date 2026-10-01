@@ -989,12 +989,12 @@ function createApp({
         }
       });
     }
-    // Change your own number (protein, calories). Allowed on side goals and on
-    // shared goals agreed as personal; your partner sees that you changed it.
+    // Change your own number (10,000 steps, 180 g, a gallon) or a custom
+    // goal's name. Only your side changes, and your partner sees it in the
+    // feed, so nobody quietly lowers the bar. How many days a week never
+    // changes here: that's the goal itself.
     if (body.personal !== undefined) {
       if (h.archived_day) fail(400, 'That goal has ended');
-      const goal = h.goal_id ? q('SELECT * FROM goals WHERE id = ?').get(h.goal_id) : null;
-      if (goal && !goal.personal) fail(400, 'You both agreed on that number; propose a new goal to change it');
       const own = personalFields(body.personal || {}, h);
       if (own.title !== h.title || own.daily_amount !== h.daily_amount) {
         q('UPDATE habits SET title = ?, daily_amount = ?, step = MIN(step, ?) WHERE id = ?').run(own.title, own.daily_amount, own.daily_amount || 1e9, h.id);
@@ -1014,6 +1014,8 @@ function createApp({
       if (h.archived_day) fail(400, 'That goal has ended');
       const schedule = parseSchedule(body.schedule);
       if (!schedule) fail(400, 'Pick at least one day');
+      // Times can move; which days you agreed to can't.
+      if (Object.keys(JSON.parse(schedule)).join() !== Object.keys(JSON.parse(h.schedule)).join()) fail(400, 'You can change your times, not which days');
       if (schedule !== h.schedule) {
         q('UPDATE habits SET schedule = ?, target_per_week = ? WHERE id = ?').run(schedule, Object.keys(JSON.parse(schedule)).length, h.id);
         addEvent({ partnership_id: h.partnership_id, actor_id: user.id, habit_id: h.id, kind: 'schedule_changed' });

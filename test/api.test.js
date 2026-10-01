@@ -298,12 +298,15 @@ test('shared wake-up goal: each of you keeps your own times', async (t) => {
   assert.equal(his.schedule, JSON.stringify(kings));
   assert.equal(his.target_per_week, 5);
 
-  // Changing your times is on the record, and only your own.
-  const newer = { mon: '06:00', tue: '06:00', wed: '06:00' };
+  // Changing your times is on the record, and only your own. The days stay:
+  // they're the goal itself.
+  const newer = Object.fromEntries(Object.keys(hanks).map((d) => [d, '06:00']));
   assert.equal((await b('PATCH', `/api/habits/${mine.id}`, { schedule: newer })).status, 404);
+  assert.equal((await a('PATCH', `/api/habits/${mine.id}`, { schedule: { mon: '06:00', tue: '06:00', wed: '06:00' } })).status, 400);
   assert.equal((await a('PATCH', `/api/habits/${mine.id}`, { schedule: newer })).status, 200);
   dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
-  assert.equal(dash.habits.find((h) => h.id === mine.id).target_per_week, 3);
+  assert.equal(dash.habits.find((h) => h.id === mine.id).target_per_week, 7);
+  assert.equal(dash.habits.find((h) => h.id === mine.id).schedule, JSON.stringify(newer));
   assert.equal(dash.events[0].kind, 'schedule_changed');
   assert.equal((await a('PATCH', `/api/habits/${mine.id}`, { schedule: {} })).status, 400);
 
@@ -459,7 +462,12 @@ test('personal numbers: each partner sets their own protein goal', async (t) => 
   await b('POST', `/api/goals/${water.id}/respond`, { answer: 'accept', today });
   dash = (await a('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
   const myWater = dash.habits.find((h) => h.goal_id === water.id && h.user_id === hankId);
-  assert.equal((await a('PATCH', `/api/habits/${myWater.id}`, { personal: { title: 'Drink a cup', daily_amount: 8 } })).status, 400);
+  // Any shared goal's number can be changed for your own side, and it's on the record.
+  assert.equal((await a('PATCH', `/api/habits/${myWater.id}`, { personal: { title: 'Drink 0.75 gallons of water', daily_amount: 96 } })).status, 200);
+  dash = (await b('GET', `/api/partnerships/${pid}/dashboard?today=${today}`)).data;
+  assert.equal(dash.habits.find((h) => h.id === myWater.id).daily_amount, 96);
+  assert.equal(dash.habits.find((h) => h.goal_id === water.id && h.id !== myWater.id).daily_amount, 128); // King's stays
+  assert.deepEqual([dash.events[0].kind, dash.events[0].message], ['amount_changed', 'Drink 0.75 gallons of water']);
 });
 
 test('order: each person sets their own goal order', async (t) => {

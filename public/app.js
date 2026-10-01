@@ -35,6 +35,7 @@
     chevron: '<path d="M6 9l6 6 6-6"/>',
     minus: '<path d="M5 12h14"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    dots: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
     flame: ICONS.calories,
     pact: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
   };
@@ -1128,26 +1129,13 @@
   }
 
   // "Mon–Thu 5:30 AM · ..." under a scheduled row, with Edit times on your own.
+  // "Mon–Thu 5:30 AM · ..." under a scheduled row. Edit from the ⋯ menu.
   function schedRow(h) {
     const sched = parseSched(h.schedule);
     if (!sched) return '';
-    if (state.panel?.type === 'edit-sched' && state.panel.habitId === h.id) {
-      return `
-        <form class="panel" data-form="edit-sched" data-habit="${h.id}">
-          ${schedEditor(`edit-${h.id}`, sched, 'Your wake-up times')}
-          <p class="small muted" data-role="preview-sub">${esc(schedLine(sched))}</p>
-          <p class="small muted">Your partner will see that you changed your times.</p>
-          <div class="row">
-            <button class="btn primary" type="submit">Save times</button>
-            <button class="btn" type="button" data-action="close-panel">Cancel</button>
-          </div>
-        </form>`;
-    }
-    const mine = isMe(h.user_id) && !h.archived_day;
     return `
       <div class="row-sched">
         ${uiIcon('clock')}<span>${esc(schedSummary(sched))}</span>
-        ${mine ? `<button class="link" data-action="edit-sched" data-habit="${h.id}">Edit times</button>` : ''}
       </div>`;
   }
 
@@ -1179,10 +1167,10 @@
           </div>
         </div>`;
     }
-    return `<div class="card-foot"><button class="link quiet" data-action="confirm-archive" data-habit="${h.id}">${shared ? 'End shared goal' : 'Drop goal'}</button></div>`;
+    return ''; // ending a goal starts from its ⋯ menu
   }
 
-  function cardHead(icon, title, sub, why) {
+  function cardHead(icon, title, sub, why, editHabit = null) {
     return `
       <div class="card-head">
         <span class="icon-tile">${iconSvg(icon)}</span>
@@ -1191,7 +1179,72 @@
           <p class="small muted">${sub}</p>
           ${why ? `<p class="why">${esc(why)}</p>` : ''}
         </div>
+        ${editHabit ? `<button class="card-menu" data-action="edit-goal" data-habit="${editHabit.id}" aria-label="Edit your goal" aria-expanded="${state.panel?.type === 'edit-goal' && state.panel.habitId === editHabit.id}">${uiIcon('dots')}</button>` : ''}
       </div>`;
+  }
+
+  // The ⋯ menu on a goal: change your own side of it. The number (10,000
+  // steps, 180 g), wake-up times (not which days), your workout day plan,
+  // what one tap of + adds, a custom goal's name, and ending it. How many
+  // days a week is the goal itself, so that's not here.
+  function editPanel(h, shared) {
+    if (!(state.panel?.type === 'edit-goal' && state.panel.habitId === h.id)) return '';
+    const d = state.dash;
+    const preset = h.icon === 'check' ? null : PRESETS.find((p) => p.icon === h.icon && p.key !== 'custom');
+    const partner = d.members.find((m) => !isMe(m.id));
+    const fields = [];
+    if (preset?.amount) {
+      const n = tracked(h) ? h.daily_amount / (preset.track?.per || 1) : Number(String(h.title).replace(/[^0-9.]/g, '')) || preset.amount;
+      fields.push(`
+        <label for="eg-amount-${h.id}">Your goal <span class="muted">(${esc(preset.unit)})</span>
+          <input id="eg-amount-${h.id}" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${Math.round(n * 100) / 100}" required data-action="preset-amount">
+        </label>
+        <p class="preview-title">${iconSvg(h.icon)}<span data-role="preview">${esc(h.title)}</span></p>`);
+    }
+    if (h.icon === 'check') {
+      fields.push(`<label for="eg-title-${h.id}">Name<input id="eg-title-${h.id}" name="title" maxlength="80" required value="${esc(h.title)}"></label>`);
+    }
+    if (tracked(h) && !typed(h)) {
+      fields.push(`
+        <label for="eg-step-${h.id}">Each tap of + adds <span class="muted">(${esc(UNIT_NAMES[h.unit] || h.unit)})</span>
+          <input id="eg-step-${h.id}" name="step" type="number" inputmode="decimal" step="any" min="0" value="${h.step || ''}" placeholder="0">
+        </label>`);
+    }
+    const sched = parseSched(h.schedule);
+    if (sched) {
+      fields.push(`
+        <fieldset class="sched"><legend>Your wake-up times</legend>
+          ${WEEK.filter(([k]) => sched[k]).map(([k, label]) => `
+            <div class="sched-row times-only">
+              <span class="sched-day">${label}</span>
+              <input name="t-${k}" type="time" value="${sched[k]}" required aria-label="${label} wake-up time">
+              <button type="button" class="link sched-copy" data-action="sched-copy" data-day="${k}">Copy</button>
+            </div>`).join('')}
+        </fieldset>
+        <p class="small muted">You can change your times, not which days.</p>`);
+    }
+    if (h.icon === 'workout') {
+      const plan = parsePlan(h);
+      fields.push(`
+        <p class="small"><strong>Plan your days</strong> <span class="muted">(optional, only you see it)</span></p>
+        <div class="plan-grid">
+          ${WEEK.map(([k, label]) => `
+            <label class="plan-day" for="plan-${h.id}-${k}"><span>${label}</span>
+              <input id="plan-${h.id}-${k}" name="p-${k}" maxlength="40" value="${esc(plan[k] || '')}" placeholder="Rest">
+            </label>`).join('')}
+        </div>`);
+    }
+    return `
+      <form class="panel edit-goal" data-form="edit-goal" data-habit="${h.id}" ${preset ? `data-preset="${preset.key}"` : ''}>
+        <p class="eyebrow">Edit your goal</p>
+        ${fields.join('') || '<p class="small muted">Nothing to change on this one.</p>'}
+        ${shared && (preset?.amount || h.icon === 'check') ? `<p class="small muted">Only your side changes. ${partner ? esc(partner.name) : 'Your partner'} sees it in Activity.</p>` : ''}
+        <div class="row">
+          ${fields.length ? '<button class="btn primary" type="submit">Save</button>' : ''}
+          <button class="btn" type="button" data-action="close-panel">${fields.length ? 'Cancel' : 'Close'}</button>
+        </div>
+        <button type="button" class="link quiet end-link" data-action="confirm-archive" data-habit="${h.id}">${shared ? 'End shared goal' : 'Drop goal'}</button>
+      </form>`;
   }
 
   function proratedNote(h) {
@@ -1232,17 +1285,18 @@
       <article class="card goal ${open ? 'is-open' : ''}" id="g-${g.id}">
         <div class="goal-hit" data-action="toggle-goal" data-goal="${g.id}">
           ${g.personal
-            ? cardHead(g.icon, personalPreset(g.icon)?.personal || g.title, `Both of you · your own numbers · ${g.target_per_week}x a week`, g.why)
-            : cardHead(g.icon, g.title, g.schedule ? 'Both of you · each on your own times' : `Both of you · ${esc(cadence(g))}`, g.why)}
+            ? cardHead(g.icon, personalPreset(g.icon)?.personal || g.title, `Both of you · your own numbers · ${g.target_per_week}x a week`, g.why, mine)
+            : cardHead(g.icon, mine && !g.schedule ? mine.title : g.title, g.schedule ? 'Both of you · each on your own times' : `Both of you · ${esc(cadence(mine && !g.schedule ? mine : g))}`, g.why, mine)}
           ${mine ? proratedNote(mine) : ''}
         </div>
+        ${mine ? editPanel(mine, true) : ''}
         <div class="tracker">
           ${dayHeader()}
           ${mine ? trackerRow(mine, d.members.find((m) => isMe(m.id)), g.personal ? true : undefined) : ''}
           ${open ? others.map(({ m, h }) => trackerRow(h, m, g.personal ? true : undefined)).join('') : ''}
         </div>
         ${compare}
-        ${mine && open ? endControl(mine, true) : ''}
+        ${mine ? endControl(mine, true) : ''}
       </article>`;
   }
 
@@ -1253,7 +1307,8 @@
     const mine = isMe(h.user_id);
     return `
       <article class="card side" id="h-${h.id}">
-        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`}${h.schedule ? '' : ` · ${esc(cadence(h))}`}`, h.why)}
+        ${cardHead(h.icon, h.title, `${mine ? 'Side goal' : `${esc(person.name)}'s side goal`}${h.schedule ? '' : ` · ${esc(cadence(h))}`}`, h.why, mine && !h.archived_day ? h : null)}
+        ${mine ? editPanel(h, false) : ''}
         ${proratedNote(h)}
         <div class="tracker">
           ${dayHeader()}
@@ -1393,7 +1448,7 @@
       // Start copying this day, or tap Done on the source to stop.
       const start = !from;
       box.dataset.copy = start ? el.dataset.day : '';
-      if (start && form.querySelector(`[name="off-${el.dataset.day}"]`).checked) {
+      if (start && form.querySelector(`[name="off-${el.dataset.day}"]`)?.checked) {
         box.dataset.copy = '';
         throw new Error('That day is off. Copy a day with a time.');
       }
@@ -1407,7 +1462,8 @@
     }
     const time = form.querySelector(`[name="t-${from}"]`).value;
     const to = el.dataset.day;
-    form.querySelector(`[name="off-${to}"]`).checked = false;
+    const off = form.querySelector(`[name="off-${to}"]`);
+    if (off) off.checked = false;
     const input = form.querySelector(`[name="t-${to}"]`);
     input.disabled = false;
     input.value = time;
@@ -1417,6 +1473,7 @@
 
   // Keep the Off boxes and the title preview in step with the times.
   function schedChanged(form) {
+    if (!form.querySelector('[name^="off-"]')) return; // times-only editor (the ⋯ menu): days are fixed
     for (const [k] of WEEK) form.querySelector(`[name="t-${k}"]`).disabled = form.querySelector(`[name="off-${k}"]`).checked;
     const sched = readSched(form);
     const title = form.querySelector('[data-role=preview]');
@@ -1480,36 +1537,16 @@
     }
   }
 
-  // Your plan under your own workout row ("Mon Push · Tue Legs"), with Edit
-  // plan. Your partner never sees it.
+  // Your plan under your own workout row ("Mon Push · Tue Legs"), if you
+  // made one (from the ⋯ menu). Your partner never sees it.
   function planRow(h) {
-    if (!isMe(h.user_id) || h.archived_day || tracked(h) || h.schedule) return '';
+    if (!isMe(h.user_id) || h.archived_day) return '';
     const plan = parsePlan(h);
-    // Offered on workouts; any goal that already has a plan keeps showing it.
-    if (h.icon !== 'workout' && !Object.keys(plan).length) return '';
-    if (state.panel?.type === 'edit-plan' && state.panel.habitId === h.id) {
-      return `
-        <form class="panel" data-form="edit-plan" data-habit="${h.id}">
-          <p class="small muted">Optional. Name what you're doing each day, like Push, Legs or Long run. Only you see this; your partner plans their own. Leave it blank to clear it.</p>
-          <div class="plan-grid">
-            ${WEEK.map(([k, label]) => `
-              <label class="plan-day" for="plan-${h.id}-${k}"><span>${label}</span>
-                <input id="plan-${h.id}-${k}" name="p-${k}" maxlength="40" value="${esc(plan[k] || '')}" placeholder="Rest">
-              </label>`).join('')}
-          </div>
-          <div class="row">
-            <button class="btn primary" type="submit">Save plan</button>
-            <button class="btn" type="button" data-action="close-panel">Cancel</button>
-          </div>
-        </form>`;
-    }
     const days = WEEK.filter(([k]) => plan[k]);
-    // Optional: with no plan it's just a quiet link, nothing to fill in.
-    if (!days.length) return `<div class="plan-offer"><button class="link quiet" data-action="edit-plan" data-habit="${h.id}">Plan your days</button></div>`;
+    if (!days.length) return '';
     return `
       <div class="row-sched plan-summary">
         ${uiIcon('clock')}<span>${days.map(([k, label]) => `${label} ${esc(plan[k])}`).join(' · ')}</span>
-        <button class="link" data-action="edit-plan" data-habit="${h.id}">Edit plan</button>
       </div>`;
   }
 
@@ -1568,19 +1605,6 @@
   // Type-an-amount box (and the tap-size box), opened from a card or the Today list.
   function amountPanel(h) {
     const p = state.panel;
-    if (p?.type === 'step' && p.habitId === h.id) {
-      return `
-        <form class="panel" data-form="step" data-habit="${h.id}">
-          <label for="step-${h.id}">Each tap of + adds <span class="muted">(${esc(UNIT_NAMES[h.unit] || h.unit)})</span>
-            <input id="step-${h.id}" name="step" type="number" inputmode="decimal" step="any" min="0" value="${h.step || ''}" placeholder="0" data-autofocus>
-          </label>
-          <p class="small muted">Set it to 0 to type the amount each time instead.</p>
-          <div class="row">
-            <button class="btn primary" type="submit">Save</button>
-            <button class="btn" type="button" data-action="close-panel">Cancel</button>
-          </div>
-        </form>`;
-    }
     const day = p?.day && p.day !== state.dash.today ? p.day : null; // tapped an earlier day's circle
     // Protein and calories: type where you're at now, like reading it off
     // MyFitnessPal. 30 g earlier and 170 g now? Type 170.
@@ -1610,7 +1634,7 @@
   }
 
   const panelFor = (h, where) =>
-    (state.panel?.type === 'amount' || state.panel?.type === 'step') && state.panel.habitId === h.id && state.panel.where === where;
+    state.panel?.type === 'amount' && state.panel.habitId === h.id && state.panel.where === where;
 
   function amountOn(h, day) {
     return state.dash.amounts?.find((a) => a.habit_id === h.id && a.day === day)?.amount || 0;
@@ -1648,7 +1672,6 @@
           ? `<span class="amount-tools">
                ${got > 0 && h.step > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
                ${h.step > 0 ? `<button class="link" data-action="open-amount" data-where="card" data-habit="${h.id}">Add…</button>` : ''}
-               ${typed(h) ? '' : `<button class="link quiet" data-action="open-step" data-habit="${h.id}">Tap size</button>`}
                ${got > 0 ? `<button class="link quiet" data-action="reset-amount" data-habit="${h.id}">${weekly(h) ? 'Reset today' : 'Reset'}</button>` : ''}
              </span>`
           : ''}
@@ -1685,7 +1708,7 @@
       case 'goal_declined': text = `${who} passed on ${goal}.`; break;
       case 'goal_withdrawn': text = `${who} withdrew ${goal}.`; break;
       case 'goal_ended': text = `${who} ended the shared goal ${habit}.`; break;
-      case 'amount_changed': text = `${who} set a new number: ${goal}.`; break;
+      case 'amount_changed': text = d.habits.find((h) => h.id === e.habit_id)?.icon === 'check' ? `${who} renamed a goal: ${goal}.` : `${who} set a new number: ${goal}.`; break;
       case 'schedule_changed': text = `${who} changed the wake-up times on ${habit}.`; break;
       case 'nudge': text = `${who} nudged ${whom}${habit ? ` about ${habit}` : ''}.${note}`; break;
       case 'cheer': text = `${who} cheered ${whom}${habit ? ` on ${habit}` : ''}.${note}`; break;
@@ -1875,7 +1898,7 @@
           ? {
               daily_amount: Number(f.amount.value) * (preset.track.per || 1),
               unit: preset.track.unit,
-              step: preset.track.step, // change it later with Tap size
+              step: preset.track.step, // change it later from the goal's ⋯ menu
               amount_period: preset.track.period || 'day',
             }
           : {}),
@@ -1910,28 +1933,38 @@
       toast('Number saved.');
       await refresh();
     },
-    async 'edit-plan'(f) {
-      const plan = {};
-      for (const [k] of WEEK) plan[k] = f[`p-${k}`].value;
-      await api('PATCH', `/api/habits/${f.dataset.habit}`, { plan, today: localToday() });
+    // Save the ⋯ menu: only what changed is sent.
+    async 'edit-goal'(f) {
+      const h = state.dash.habits.find((x) => x.id === Number(f.dataset.habit));
+      const preset = PRESETS.find((p) => p.key === f.dataset.preset);
+      const body = {};
+      if (f.amount) {
+        const title = presetTitle(preset, f.amount.value);
+        if (!title) throw new Error(`Enter your goal in ${preset.unit}`);
+        const amount = tracked(h) ? Number(f.amount.value) * (preset.track?.per || 1) : undefined;
+        if (title !== h.title || (amount !== undefined && amount !== h.daily_amount)) body.personal = { title, ...(amount !== undefined ? { daily_amount: amount } : {}) };
+      }
+      if (f.title && f.title.value.trim() !== h.title) body.personal = { title: f.title.value.trim() };
+      if (f.step) {
+        const step = f.step.value === '' ? 0 : Number(f.step.value);
+        if (!Number.isFinite(step) || step < 0) throw new Error('Enter a tap size, or 0 to type it each time');
+        if (step !== h.step) body.step = step;
+      }
+      const sched = parseSched(h.schedule);
+      if (sched) {
+        const next = {};
+        for (const k of Object.keys(sched)) next[k] = f[`t-${k}`].value;
+        if (JSON.stringify(next) !== JSON.stringify(sched)) body.schedule = next;
+      }
+      if (f['p-mon']) {
+        const plan = {};
+        for (const [k] of WEEK) if (f[`p-${k}`].value.trim()) plan[k] = f[`p-${k}`].value.trim();
+        if (JSON.stringify(plan) !== JSON.stringify(parsePlan(h))) body.plan = plan;
+      }
       state.panel = null;
-      toast('Plan saved. Only you see it.');
-      await refresh();
-    },
-    async 'edit-sched'(f) {
-      const schedule = readSched(f);
-      if (!Object.keys(schedule).length) throw new Error('Pick at least one day');
-      await api('PATCH', `/api/habits/${f.dataset.habit}`, { schedule, today: localToday() });
-      state.panel = null;
-      toast('Times saved.');
-      await refresh();
-    },
-    async step(f) {
-      const n = f.step.value === '' ? 0 : Number(f.step.value);
-      if (!Number.isFinite(n) || n < 0) throw new Error('Enter a number, or 0 to type the amount each time');
-      await api('PATCH', `/api/habits/${f.dataset.habit}`, { step: n });
-      state.panel = null;
-      toast(n ? `Each tap now adds ${n}.` : 'You’ll type the amount each time.');
+      if (!Object.keys(body).length) return render();
+      await api('PATCH', `/api/habits/${h.id}`, { ...body, today: localToday() });
+      toast('Saved.');
       await refresh();
     },
     async 'amount-total'(f) {
@@ -2057,14 +2090,6 @@
     'sched-copy'(el) {
       schedCopy(el);
     },
-    'edit-plan'(el) {
-      state.panel = { type: 'edit-plan', habitId: Number(el.dataset.habit) };
-      render();
-    },
-    'edit-sched'(el) {
-      state.panel = { type: 'edit-sched', habitId: Number(el.dataset.habit) };
-      render();
-    },
     // Back to zero for today (a weekly goal keeps its other days). Undo puts it back.
     async 'reset-amount'(el) {
       const h = state.dash.habits.find((x) => x.id === Number(el.dataset.habit));
@@ -2083,12 +2108,13 @@
       render();
       window.scrollTo(0, 0);
     },
-    'open-amount'(el) {
-      state.panel = { type: 'amount', habitId: Number(el.dataset.habit), where: el.dataset.where || 'card', day: el.dataset.day };
+    'edit-goal'(el) {
+      const id = Number(el.dataset.habit);
+      state.panel = state.panel?.type === 'edit-goal' && state.panel.habitId === id ? null : { type: 'edit-goal', habitId: id };
       render();
     },
-    'open-step'(el) {
-      state.panel = { type: 'step', habitId: Number(el.dataset.habit), where: 'card' };
+    'open-amount'(el) {
+      state.panel = { type: 'amount', habitId: Number(el.dataset.habit), where: el.dataset.where || 'card', day: el.dataset.day };
       render();
     },
     'open-miss'(el) {

@@ -380,8 +380,6 @@
       }
       if (b.personal !== undefined) {
         if (h.archived_day) fail(400, 'That goal has ended');
-        const goal = h.goal_id ? db.goals.find((g) => g.id === h.goal_id) : null;
-        if (goal && !goal.personal) fail(400, 'You both agreed on that number; propose a new goal to change it');
         const own = personalFields(b.personal || {}, h);
         if (own.title !== h.title || own.daily_amount !== h.daily_amount) {
           Object.assign(h, own, { step: Math.min(h.step, own.daily_amount || h.step) });
