@@ -2639,13 +2639,16 @@
       await enablePush();
     },
     // The + in the corner: open the propose form and bring it into view.
-    'open-propose'() {
+    'open-propose'(el) {
+      const from = el.getBoundingClientRect();
       state.addOpen = 'shared';
       state.preset = null;
       state.pactsOpen = false;
       render();
       const form = app.querySelector('details.add-shared');
-      if (form) window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 16, behavior: 'smooth' });
+      if (!form) return;
+      window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 16, behavior: 'instant' });
+      morph(form, from, 'open');
     },
     'open-weight'() {
       state.view = 'weight';
@@ -2899,6 +2902,55 @@
   } catch {
     /* not supported here */
   }
+
+  // The + grows into the propose form, and the form shrinks back into it.
+  // The form slides from the button's corner while a circle the size of the
+  // button opens up to show all of it (no squashing of what's inside).
+  const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  function fabRect() {
+    // Where the + sits (see .fab in styles.css), for closing back into it.
+    const size = 60;
+    return { left: window.innerWidth - 18 - size, top: window.innerHeight - 22 - size, width: size, height: size };
+  }
+  function morph(form, fab, dir) {
+    if (reduceMotion() || !form.animate) return Promise.resolve();
+    const r = form.getBoundingClientRect();
+    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    const dx = fab.left + fab.width - (r.left + r.width);
+    const dy = fab.top + fab.height - (r.top + r.height);
+    const closed = {
+      transform: `translate(${dx}px, ${dy}px)`,
+      clipPath: `inset(${Math.max(0, r.height - fab.height)}px 0 0 ${Math.max(0, r.width - fab.width)}px round ${fab.width / 2}px)`,
+      backgroundColor: css('--you'),
+    };
+    const open = { transform: 'translate(0, 0)', clipPath: 'inset(0 0 0 0 round 18px)', backgroundColor: css('--surface') };
+    const frames = dir === 'open' ? [closed, open] : [open, closed];
+    const easing = dir === 'open' ? 'cubic-bezier(0.32, 0.72, 0, 1)' : 'cubic-bezier(0.5, 0, 0.75, 0.3)';
+    const ms = dir === 'open' ? 520 : 320;
+    // What's inside fades in once there's room for it (and out first on close).
+    const inner = [...form.children];
+    inner.forEach((c) =>
+      c.animate(dir === 'open' ? [{ opacity: 0 }, { opacity: 0, offset: 0.45 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0, offset: 0.4 }, { opacity: 0 }], { duration: ms, easing: 'linear', fill: 'both' })
+    );
+    const a = form.animate(frames, { duration: ms, easing, fill: dir === 'open' ? 'none' : 'forwards' });
+    if (dir === 'open') a.finished.then(() => inner.forEach((c) => c.getAnimations().forEach((x) => x.cancel())));
+    return a.finished.catch(() => {});
+  }
+  // Close with the X: shrink back into the +, then take the form away.
+  app.addEventListener('click', (ev) => {
+    const summary = ev.target.closest?.('details.add-shared > summary');
+    if (!summary || !summary.parentElement.open) return;
+    ev.preventDefault();
+    const form = summary.parentElement;
+    if (form.dataset.closing) return;
+    form.dataset.closing = '1';
+    morph(form, fabRect(), 'close').then(() => {
+      state.addOpen = 'closed';
+      state.preset = null;
+      render();
+      app.querySelector('.fab')?.animate([{ transform: 'scale(0.6) rotate(-90deg)' }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)' });
+    });
+  }, true);
 
   // The + slides away while you scroll down and comes back when you scroll up.
   let lastScroll = window.scrollY;
