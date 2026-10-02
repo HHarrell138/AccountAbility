@@ -144,6 +144,101 @@
     }
   }
 
+  // ---------- tips: the app shows you around as you go ----------
+  // One short tip at a time, right where it applies, the first time it
+  // applies. "Got it" (or just doing the thing) and it's gone for good. The
+  // same goes for the how-to lines in the goal form: you see them the first
+  // time you pick that kind of goal, not every time.
+  const tipKey = () => `aa.tips.${state.user?.id || 0}`;
+  function tipsSeen() {
+    try {
+      return new Set(JSON.parse(store(tipKey()) || '[]'));
+    } catch {
+      return new Set();
+    }
+  }
+  const seen = (key) => tipsSeen().has(key);
+  function markSeen(...keys) {
+    const set = tipsSeen();
+    const before = set.size;
+    keys.flat().forEach((k) => set.add(k));
+    if (set.size !== before) store(tipKey(), JSON.stringify([...set]));
+  }
+  // Only the first time: the how-to line, or nothing.
+  const firstTime = (key, html) => (seen(key) ? '' : html);
+
+  // Doing the thing counts as reading the tip.
+  const TIP_ACTIONS = {
+    'open-propose': 'fab',
+    respond: 'needs-yes',
+    'open-accept': 'needs-yes',
+    'log-done': 'log',
+    'undo-done': 'log',
+    'add-amount': 'amount-step',
+    'open-amount': ['amount-step', 'amount-typed', 'amount-week'],
+    'toggle-goal': 'compare',
+    send: 'compare',
+    'open-day': 'circles',
+    'open-weight': 'weight',
+    'toggle-pacts': 'pacts',
+  };
+
+  // Which tip is up right now: the first one that applies and hasn't been seen.
+  function nextTip() {
+    const d = state.dash;
+    const done = tipsSeen();
+    const mine = d.habits.filter((h) => isMe(h.user_id) && !h.archived_day && !challengeOver(h) && h.created_day <= d.today);
+    const shared = d.goals.filter((g) => g.status === 'active');
+    const proposed = d.goals.filter((g) => g.status === 'proposed');
+    const partner = d.members.some((m) => !isMe(m.id));
+    const today = dayStatus(d.me).items;
+    const order = [
+      ['fab', !shared.length && !proposed.length],
+      ['needs-yes', proposed.some((g) => !isMe(g.proposed_by))],
+      ['log', today.some((i) => i.status === 'todo' && !tracked(i.h))],
+      ['amount-step', today.some((i) => tracked(i.h) && !typed(i.h) && !weekly(i.h))],
+      ['amount-typed', today.some((i) => typed(i.h))],
+      ['amount-week', today.some((i) => weekly(i.h))],
+      ['board', partner && shared.length],
+      ['compare', partner && shared.length],
+      ['circles', mine.length],
+      ['wake', mine.some((h) => h.icon === 'wake')],
+      ['challenge', mine.some((h) => h.ends_day)],
+      ['streak', partner && d.checkins.some((c) => isMe(c.user_id))],
+      ['weight', mine.length],
+      ['pacts', mine.length],
+    ];
+    return order.find(([k, ok]) => ok && !done.has(k))?.[0] || null;
+  }
+
+  const TIPS = {
+    fab: () => 'Start here: tap <strong>+</strong> to propose your first shared goal.',
+    'needs-yes': () => 'Your partner proposed this. <strong>Agree</strong> and it starts today for both of you.',
+    log: () => 'Done for today? <strong>Tap the check.</strong> Tap it again if it was a mistake.',
+    'amount-step': () => 'Each tap of <strong>+</strong> adds to today. Hit the amount and it counts as done.',
+    'amount-typed': () => 'Tap <strong>+</strong> and type where you\'re at <strong>now</strong>: at 30 g earlier and 170 g now? Type 170.',
+    'amount-week': () => 'Miles add up across the week. Tap <strong>+</strong> after each run.',
+    board: () => 'That\'s both of you today. The same goal sits in the same spot on both bars.',
+    compare: () => 'Tap <strong>Compare</strong> to see your partner\'s week. The bell nudges them; once they\'re done it turns into a star to cheer.',
+    circles: () => '<strong>Tap any circle</strong> to see that day. Forgot yesterday? You can still log it there.',
+    wake: () => 'Check off your wake-up when you\'re up. Your partner gets told you\'re up.',
+    challenge: () => 'This one has a finish line. When it ends, you both see how it went.',
+    streak: () => 'Every log fills this bar for both of you. <strong>70%</strong> for the week keeps the streak alive.',
+    weight: () => 'Log your weight here in the morning. <strong>Only you see it</strong> unless you share it.',
+    pacts: () => 'Tap your circles up top to switch pacts, start a new one, or find <strong>How it works</strong>.',
+  };
+
+  // The tip's markup, once per page, only where and when it's the one that's up.
+  function tipAt(key, extra = '') {
+    if (state.tip !== key || state.tipDrawn) return '';
+    state.tipDrawn = true;
+    return `
+      <div class="tip ${extra}" role="note">
+        <p>${TIPS[key]()}</p>
+        <button type="button" class="tip-ok" data-action="tip-done" data-tip="${key}">Got it</button>
+      </div>`;
+  }
+
   // Toast with an optional action button (used for Undo).
   let toastTimer;
   let toastAction = null;
@@ -352,6 +447,8 @@
     const proposals = d.goals.filter((g) => g.status === 'proposed');
     const sideMine = d.habits.filter((h) => isMe(h.user_id) && !h.goal_id).sort(byOrder);
     const unread = d.events.filter((e) => e.id > d.last_seen_event_id && !isMe(e.actor_id)).length;
+    state.tip = state.reorder ? null : nextTip();
+    state.tipDrawn = false;
 
     return `
       <header class="top">
@@ -365,14 +462,16 @@
         </button>
       </header>
       ${state.pactsOpen ? pactsMenu() : ''}
+      ${state.addOpen === 'shared' || state.reorder ? '' : tipAt('fab', 'tip-fab')}
       ${state.addOpen === 'shared' || state.reorder ? '' : `<button type="button" class="fab ${state.fabHidden ? 'away' : ''}" data-action="open-propose" aria-label="Propose a shared goal">${uiIcon('plus')}</button>`}
 
       ${wakeCard()}
-      ${store('aa.guideSeen') ? '' : guidePromptCard()}
+      ${tipAt('pacts', 'tip-up')}
       ${progressCard()}
       ${pushPromptCard()}
       ${waiting ? inviteCard() : ''}
       ${state.recap && (state.recapOpen || !store(recapKey(state.recap))) ? recapCard(state.recap) : ''}
+      ${tipAt('streak')}
       ${streakCard()}
       ${proposals.length ? proposalsCard(proposals) : ''}
 
@@ -600,22 +699,6 @@
     return '';
   }
 
-  // New here? A one-time card pointing at How it works.
-  function guidePromptCard() {
-    return `
-      <section class="card push-prompt guide-prompt">
-        <span class="icon-tile">${uiIcon('pact')}</span>
-        <div>
-          <p><strong>New here?</strong></p>
-          <p class="small muted">A one-minute walkthrough of logging, the streak and your pacts. You can find it later by tapping your circles at the top.</p>
-          <div class="row">
-            <button class="btn small primary" data-action="open-guide">Show me</button>
-            <button class="btn small" data-action="guide-later">Not now</button>
-          </div>
-        </div>
-      </section>`;
-  }
-
   // A one-time nudge on the dashboard to turn notifications on.
   function pushPromptCard() {
     if (!pushSupported() || state.pushOn || Notification.permission === 'denied' || store('aa.pushPrompt')) return '';
@@ -714,7 +797,8 @@
         '<strong>Account settings</strong> (tap your circles at the top) has your email, password and notifications.',
         'Forgot your password? On the log in screen, tap <strong>Forgot your password?</strong> and you\'ll get a code by email.',
       ])}
-      <button class="btn primary wide guide-done" data-action="close-settings">Got it</button>`;
+      <button class="btn primary wide guide-done" data-action="close-settings">Got it</button>
+      <button class="link quiet tips-reset" data-action="tips-reset">Show the tips again</button>`;
   }
 
   // One day, every goal: tap any circle to get here. Today and yesterday can
@@ -1014,7 +1098,8 @@
           <p class="progress-meta">${meta}</p>
         </div>
         <div class="board">${board}</div>
-        ${rows ? `<div class="today-list">${rows}</div>` : '<p class="small muted">Agree on a shared goal or add a side goal below, and your day shows up here.</p>'}
+        ${tipAt('board')}${tipAt('log')}${tipAt('amount-step')}${tipAt('amount-typed')}${tipAt('amount-week')}
+        ${rows ? `<div class="today-list">${rows}</div>` : '<p class="small muted">Tap + to propose a shared goal, or add a side goal below, and your day shows up here.</p>'}
       </section>`;
   }
 
@@ -1175,7 +1260,7 @@
 
     return `
       <section class="card proposals ${incoming.length ? '' : 'quiet'}">
-        ${incoming.length ? `<h2 class="card-title">Needs your yes <span class="badge">${incoming.length}</span></h2>${ask}` : ''}
+        ${incoming.length ? `<h2 class="card-title">Needs your yes <span class="badge">${incoming.length}</span></h2>${tipAt('needs-yes')}${ask}` : ''}
         ${sent}
       </section>`;
   }
@@ -1500,6 +1585,8 @@
           ${mine ? trackerRow(mine, d.members.find((m) => isMe(m.id)), g.personal ? true : undefined) : ''}
           ${open ? others.map(({ m, h }) => trackerRow(h, m, g.personal ? true : undefined)).join('') : ''}
         </div>
+        ${tipAt('circles')}${g.icon === 'wake' ? tipAt('wake') : ''}${mine?.ends_day ? tipAt('challenge') : ''}
+        ${others.length ? tipAt('compare') : ''}
         ${compare}
         ${mine ? endControl(mine, true) : ''}
       </article>`;
@@ -1519,6 +1606,7 @@
           ${dayHeader()}
           ${trackerRow(h, person, false)}
         </div>
+        ${mine ? `${tipAt('circles')}${h.icon === 'wake' ? tipAt('wake') : ''}${h.ends_day ? tipAt('challenge') : ''}` : ''}
         ${mine ? endControl(h, false) : ''}
       </article>`;
   }
@@ -1547,7 +1635,7 @@
           ? `<label for="${kind}-title">Goal<input id="${kind}-title" name="title" maxlength="80" required placeholder="${shared ? 'No phone after 10pm' : 'Edit one video'}" data-autofocus></label>`
           : preset.schedule
             ? `${schedEditor(kind, preset.schedule, shared ? 'Your wake-up times' : 'Wake-up time for each day')}
-               ${shared ? `<p class="small muted">${partnerName} sets their own times when they agree.</p>` : ''}
+               ${shared ? firstTime(`form-${preset.key}`, `<p class="small muted">${partnerName} sets their own times when they agree.</p>`) : ''}
                <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(schedTitle(preset.schedule, shared))}</span></p>
                <p class="small muted" data-role="preview-sub">${esc(schedLine(preset.schedule))}</p>`
           : preset.amount
@@ -1555,8 +1643,8 @@
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
                </label>
                <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.amount))}</span></p>
-               ${shared && preset.personal ? `<p class="small muted">That's your number. ${partnerName} sets their own when they agree.</p>` : ''}
-               ${preset.track
+               ${shared && preset.personal ? firstTime(`form-${preset.key}`, `<p class="small muted">That's your number. ${partnerName} sets their own when they agree.</p>`) : ''}
+               ${preset.track && !seen(`form-${preset.key}`)
                  ? preset.track.step
                    ? `<p class="small muted">Log it as you go: each tap of + adds ${esc(fmtAmount(preset.track.step, preset.track.unit))}, and Add… lets you type more. Hitting the amount counts as done. You can change the tap size after.</p>`
                    : `<p class="small muted">Log it as you go: tap + and type how many ${esc(UNIT_NAMES[preset.track.unit])} each time. Hitting the amount counts as done.</p>`
@@ -1582,7 +1670,7 @@
               ${CHALLENGE_DAYS.map((n) => `<option value="${n}" ${n === preset.challenge ? 'selected' : ''}>${n} days</option>`).join('')}
             </select>
           </label>
-          <p class="small muted">Pick a length to make it a challenge with a finish line${shared ? '. Day 1 is the day you both agree' : ''}.</p>`}
+          ${firstTime('form-length', `<p class="small muted">Pick a length to make it a challenge with a finish line${shared ? '. Day 1 is the day you both agree' : ''}.</p>`)}`}
           <button class="btn primary wide" type="submit">${shared ? 'Propose goal' : 'Add side goal'}</button>
         </form>`;
     }
@@ -1591,7 +1679,7 @@
       <details class="add ${shared ? 'add-shared' : ''}" data-kind="${kind}" ${isOpen ? 'open' : ''}>
         <summary>${uiIcon('plus')}${shared ? `Propose a shared goal${uiIcon('x', 'add-close')}` : 'Add a side goal'}</summary>
         <div class="add-body">
-          <p class="small muted">${shared ? `${partnerName} has to agree before it starts. Then you're both on the hook.` : 'Pick one to start from, or make your own.'}</p>
+          ${firstTime(`form-intro-${kind}`, `<p class="small muted">${shared ? `${partnerName} has to agree before it starts. Then you're both on the hook.` : 'Pick one to start from, or make your own.'}</p>`)}
           <div class="presets">${tiles}</div>
           ${form}
         </div>
@@ -1869,6 +1957,7 @@
       <section class="block">
         <h2 class="section-title">Weight</h2>
         <p class="section-note">${state.user.share_weight ? 'Your partners can see it.' : 'Only you see it.'}</p>
+        ${tipAt('weight')}
         <article class="card weight-card">
           <button type="button" class="weight-hit" data-action="open-weight" aria-label="Open your weight history">
             <span class="icon-tile">${iconSvg('weight')}</span>
@@ -2182,6 +2271,7 @@
 
   const forms = {
     async weight(f) {
+      markSeen('weight');
       const lb = Number(f.lb.value);
       if (!Number.isFinite(lb) || lb < 50 || lb > 800) throw new Error('Enter your weight in pounds');
       await api('POST', '/api/weights', { lb, today: localToday() });
@@ -2245,6 +2335,7 @@
     },
     async goal(f) {
       const preset = PRESETS.find((p) => p.key === f.dataset.preset);
+      markSeen(`form-${preset.key}`, 'form-length', `form-intro-${f.dataset.kind}`);
       let title;
       let schedule;
       if (preset.key === 'custom') title = f.title.value;
@@ -2339,12 +2430,14 @@
       await refresh();
     },
     async 'amount-total'(f) {
+      markSeen('amount-typed');
       const n = Number(f.amount.value);
       if (!Number.isFinite(n) || n < 0) throw new Error('Enter your total so far');
       state.panel = null;
       await setAmount(Number(f.dataset.habit), n, f.dataset.day);
     },
     async amount(f) {
+      markSeen('amount-step', 'amount-week');
       const n = Number(f.amount.value);
       if (!Number.isFinite(n) || n <= 0) throw new Error('Enter an amount');
       state.panel = null;
@@ -2681,14 +2774,17 @@
     'open-guide'() {
       state.view = 'guide';
       state.pactsOpen = false;
-      store('aa.guideSeen', '1');
       history.pushState({ view: 'guide' }, '');
       render();
       window.scrollTo(0, 0);
     },
-    'guide-later'() {
-      store('aa.guideSeen', '1');
+    'tip-done'(el) {
+      markSeen(el.dataset.tip);
       render();
+    },
+    'tips-reset'() {
+      store(tipKey(), '[]');
+      toast('Tips are back on. You\'ll see them as you go.');
     },
     'open-settings'() {
       state.view = 'settings';
@@ -2825,6 +2921,7 @@
   app.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-action]');
     if (!el || el.tagName === 'SELECT' || el.tagName === 'INPUT' || el.disabled) return;
+    if (TIP_ACTIONS[el.dataset.action]) markSeen(TIP_ACTIONS[el.dataset.action]);
     if (el.dataset.action === 'log-done') haptic();
 
     else if (el.dataset.action === 'add-amount') amountHaptic(Number(el.dataset.habit), Number(el.dataset.delta), el.dataset.day);

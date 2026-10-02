@@ -959,3 +959,60 @@ body:has(#toast:not([hidden])) .fab { bottom: calc(86px + env(safe-area-inset-bo
   #app, #toast, .fab, .preview-bar { display: none !important; }
   html, body { overflow: hidden; }
 }
+
+/* ---------- tips, as you go ---------- */
+.tip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 11px 12px 11px 14px;
+  border-radius: 14px;
+  background: var(--you-soft);
+  border: 1px solid var(--accent-line);
+  font-size: 0.88rem;
+  line-height: 1.4;
+  animation: tip-in 0.35s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+.tip p { flex: 1 1 auto; margin: 0; }
+.tip strong { color: var(--ink); }
+.tip-ok {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--you);
+  color: #fff;
+  font: 700 0.8rem var(--font-text);
+  cursor: pointer;
+}
+.tip-up { margin: 0 0 14px; }
+/* The first-run tip points at the + in the corner. */
+.tip-fab {
+  position: fixed;
+  right: calc(18px + env(safe-area-inset-right));
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  z-index: 21;
+  max-width: min(300px, calc(100% - 36px));
+  margin: 0;
+  background: var(--surface-2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+.tip-fab::after {
+  content: '';
+  position: absolute;
+  right: 22px;
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+  background: var(--surface-2);
+  border-right: 1px solid var(--accent-line);
+  border-bottom: 1px solid var(--accent-line);
+  transform: rotate(45deg);
+}
+@keyframes tip-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tip { animation: none; } }
+.tips-reset { display: block; margin: 14px auto 0; }
+.tip-fab:has(+ .fab.away) { opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+body:has(#toast:not([hidden])) .tip-fab { bottom: calc(160px + env(safe-area-inset-bottom)); }
