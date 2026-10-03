@@ -45,7 +45,7 @@
     `<svg class="ui-icon ${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${UI_ICONS[key]}</svg>`;
 
   // Presets fill in the goal form. {n} is the amount the person picks.
-  const PRESETS = [
+  const BASE_PRESETS = [
     // `track` = log as you go: the + button adds `step` of `unit` to today's total.
     { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'} a week`, amount: 15, min: 1, unit: 'miles a week', track: { unit: 'mi', step: 1, period: 'week' } },
     { key: 'water', icon: 'water', label: 'Water', title: (n) => `Drink ${n} gallon${n === 1 ? '' : 's'} of water`, amount: 1, min: 0.25, unit: 'gallons', days: 7, track: { unit: 'oz', step: 8, per: 128 } }, // goal set in gallons, logged in ounces
@@ -61,6 +61,58 @@
     { key: 'sober', icon: 'sober', label: 'No alcohol', title: () => 'No alcohol', days: 7, challenge: 30 },
     { key: 'custom', icon: 'check', label: 'Custom goal', days: 5 },
   ];
+
+  // ---------- units ----------
+  // Water is stored in oz, runs in miles and weight in lb, always. Metric is
+  // how you see and type them: ml, km, kg. Converted when the dashboard loads
+  // and back right before anything is sent, so partners on different systems
+  // share the same goal.
+  const METRIC = { oz: ['ml', 29.5735295625], mi: ['km', 1.609344], lb: ['kg', 0.45359237] };
+  const metric = () => state.user?.units === 'metric';
+  const unitFactor = (u) => Object.values(METRIC).find(([m]) => m === u)?.[1] || 1; // display units per stored unit
+  const canonUnit = (u) => Object.keys(METRIC).find((k) => METRIC[k][0] === u) || u;
+  const toCanon = (v, displayUnit) => Math.round((v / unitFactor(displayUnit)) * 10000) / 10000;
+  const wUnit = () => (metric() ? 'kg' : 'lb');
+  const METRIC_PRESETS = {
+    water: { unit: 'liters', amount: 4, min: 0.5, title: (n) => `Drink ${n} L of water`, track: { unit: 'ml', step: 250, per: 1000 } },
+    run: { unit: 'km a week', amount: 25, min: 1, title: (n) => `Run ${n} km a week`, track: { unit: 'km', step: 1, period: 'week' } },
+  };
+  let PRESETS = BASE_PRESETS;
+  function applyUnits() {
+    PRESETS = metric() ? BASE_PRESETS.map((p) => (METRIC_PRESETS[p.key] ? { ...p, ...METRIC_PRESETS[p.key] } : p)) : BASE_PRESETS;
+  }
+
+  // The dashboard, in your units. Water and run titles are rebuilt from the
+  // amount, so "Drink 1 gallon of water" reads "Drink 3.79 L of water".
+  function localize(d) {
+    applyUnits();
+    if (metric()) {
+      const factor = new Map();
+      for (const x of [...d.habits, ...d.goals]) {
+        const m = METRIC[x.unit];
+        if (!m) continue;
+        x.daily_amount *= m[1];
+        x.step *= m[1];
+        x.unit = m[0];
+        if (x.goal_id !== undefined) factor.set(x.id, m[1]);
+      }
+      for (const a of d.amounts || []) if (factor.has(a.habit_id)) a.amount *= factor.get(a.habit_id);
+      for (const list of Object.values(d.weights || {})) for (const w of list) w.lb *= METRIC.lb[1];
+    }
+    for (const x of [...d.habits, ...d.goals]) {
+      const p = PRESETS.find((y) => y.key === x.icon && y.track);
+      if (p && x.daily_amount > 0) x.title = p.title(Math.round((x.daily_amount / (p.track.per || 1)) * 100) / 100);
+    }
+    // Feed lines like "135.26 oz" in your units too.
+    if (metric()) {
+      for (const e of d.events || []) {
+        if (e.habit_title) e.habit_title = d.habits.find((h) => h.id === e.habit_id)?.title || e.habit_title;
+        if (/^[\d.]+ (oz|mi)\b/.test(e.message || '')) {
+          e.message = e.message.replace(/^([\d.]+) (oz|mi)\b/, (_, n, u) => fmtAmount(Number(n) * METRIC[u][1], METRIC[u][0]));
+        }
+      }
+    }
+  }
 
   // Challenge lengths: a finish line ("30 days, no alcohol"), or ongoing.
   const CHALLENGE_DAYS = [7, 14, 21, 30, 60, 90];
@@ -310,12 +362,14 @@
 
   async function loadDash() {
     state.dash = await api('GET', `/api/partnerships/${state.pid}/dashboard?today=${localToday()}`);
+    localize(state.dash);
     // The recap shows itself Sunday to Tuesday until you dismiss it, and
     // any day from Week recap on the streak card.
     const dow = new Date(`${state.dash.today}T00:00:00Z`).getUTCDay();
     const inWindow = dow === 0 || dow === 1 || dow === 2;
     if (state.recapOpen || (inWindow && state.dash.members.length > 1 && state.dash.goals.some((g) => g.status === 'active'))) {
       state.recap = await api('GET', `/api/partnerships/${state.pid}/recap?today=${localToday()}`);
+      for (const g of state.recap.goals || []) for (const r of g.rows) r.title = state.dash.habits.find((h) => h.id === r.habit_id)?.title || r.title;
     } else state.recap = null;
   }
 
@@ -329,6 +383,7 @@
   // ---------- views ----------
 
   function render() {
+    applyUnits();
     if (!state.user) app.innerHTML = authView();
     else if (state.view === 'guide') app.innerHTML = guideView();
     else if (state.view === 'settings') app.innerHTML = settingsView();
@@ -856,8 +911,8 @@
     } else if (tracked(h)) {
       const target = weekly(h) ? null : h.daily_amount;
       detail = `<span class="today-amount">${weekly(h)
-        ? `${esc(fmtAmount(amt, h.unit))} this day · ${esc(fmtAmount(weekTotal(h), ''))} / ${esc(fmtAmount(weekTarget(h), h.unit))} this week`
-        : `${esc(fmtAmount(amt, ''))} / ${esc(fmtAmount(target, h.unit))}`}</span>
+        ? `${esc(fmtAmount(amt, h.unit))} this day · ${esc(fmtAmount(weekTotal(h), h.unit, true))} / ${esc(fmtAmount(weekTarget(h), h.unit))} this week`
+        : `${esc(fmtAmount(amt, h.unit, true))} / ${esc(fmtAmount(target, h.unit))}`}</span>
         ${weekly(h) ? '' : `<span class="bar combined ${amt >= target ? 'green' : ''} day-bar"><span style="width:${Math.min(100, Math.round((amt / target) * 100))}%"></span></span>`}`;
       if (editable) {
         control = plusButton(h, c?.status === 'done', 'day', true, day);
@@ -930,6 +985,18 @@
         <input id="acct-name" name="name" autocomplete="given-name" autocapitalize="words" maxlength="40" required value="${esc(state.user.name)}">
         <button class="btn" type="submit">Save name</button>
       </form>
+
+      <section class="card settings-card">
+        <h2 class="card-title">Units</h2>
+        <p class="small muted">How you see and log water, runs and weight. Your partners keep their own, and you still share the same goals.</p>
+        <div class="units-pick" role="radiogroup" aria-label="Units">
+          ${[['us', 'US', 'oz · miles · lb'], ['metric', 'Metric', 'ml · km · kg']].map(([k, label, sub]) => `
+            <label class="unit-opt ${(state.user.units || 'us') === k ? 'on' : ''}">
+              <input type="radio" name="units" value="${k}" data-action="set-units" ${(state.user.units || 'us') === k ? 'checked' : ''}>
+              <strong>${label}</strong><span class="small muted">${sub}</span>
+            </label>`).join('')}
+        </div>
+      </section>
 
       <form class="card settings-card" data-form="email">
         <h2 class="card-title">Email</h2>
@@ -1093,8 +1160,8 @@
               <span class="icon-tile sm">${iconSvg(h.icon)}</span>
               <span class="today-title">${esc(todayTitle(h))}${tracked(h) && status !== 'missed'
                 ? `<span class="today-amount">${weekly(h)
-                    ? `${esc(fmtAmount(weekTotal(h), ''))} / ${esc(fmtAmount(weekTarget(h), h.unit))} this week`
-                    : `${esc(fmtAmount(amountOn(h, d.today), ''))} / ${esc(fmtAmount(h.daily_amount, h.unit))}`}</span>`
+                    ? `${esc(fmtAmount(weekTotal(h), h.unit, true))} / ${esc(fmtAmount(weekTarget(h), h.unit))} this week`
+                    : `${esc(fmtAmount(amountOn(h, d.today), h.unit, true))} / ${esc(fmtAmount(h.daily_amount, h.unit))}`}</span>`
                 : ''}</span>
               ${h.goal_id ? '<span class="tag">shared</span>' : ''}
               ${note}
@@ -1508,7 +1575,7 @@
     if (tracked(h) && !typed(h)) {
       fields.push(`
         <label for="eg-step-${h.id}">Each tap of + adds <span class="muted">(${esc(UNIT_NAMES[h.unit] || h.unit)})</span>
-          <input id="eg-step-${h.id}" name="step" type="number" inputmode="decimal" step="any" min="0" value="${h.step || ''}" placeholder="0">
+          <input id="eg-step-${h.id}" name="step" type="number" inputmode="decimal" step="any" min="0" value="${h.step ? (h.unit === 'ml' ? Math.round(h.step) : Math.round(h.step * 100) / 100) : ''}" placeholder="0">
         </label>`);
     }
     const sched = parseSched(h.schedule);
@@ -1874,7 +1941,7 @@
     if (entries.length < 2) return '';
     const diff = Math.round((entries[entries.length - 1].lb - entries[0].lb) * 10) / 10;
     const sign = diff > 0 ? '+' : diff < 0 ? '−' : '±';
-    return `${sign}${fmtLb(Math.abs(diff))} lb since ${shortDate(entries[0].day)}`;
+    return `${sign}${fmtLb(Math.abs(diff))} ${wUnit()} since ${shortDate(entries[0].day)}`;
   }
 
   // A line over time (days, not entries, along the bottom). `big` adds the
@@ -1908,7 +1975,7 @@
     const data = big ? ` data-points='${esc(JSON.stringify(entries.map((e, i) => [pts[i][0], pts[i][1], e.day, e.lb])))}'` : '';
     return `
       <div class="wchart ${who} ${big ? 'big' : ''}"${data}>
-        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weight over time, ${fmtLb(entries[0].lb)} to ${fmtLb(entries[entries.length - 1].lb)} lb">
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weight over time, ${fmtLb(entries[0].lb)} to ${fmtLb(entries[entries.length - 1].lb)} ${wUnit()}">
           ${axes}
           <path class="wline" d="${line}"/>
           ${dots}
@@ -1938,7 +2005,7 @@
     cross.removeAttribute('hidden');
     focus.removeAttribute('hidden');
     const tip = box.querySelector('.wtip');
-    tip.innerHTML = `<strong>${fmtLb(best[3])} lb</strong><span>${esc(shortDate(best[2]))}</span>`;
+    tip.innerHTML = `<strong>${fmtLb(best[3])} ${wUnit()}</strong><span>${esc(shortDate(best[2]))}</span>`;
     tip.hidden = false;
     const px = (best[0] / 320) * r.width;
     tip.style.left = `${Math.min(Math.max(px, 44), r.width - 44)}px`;
@@ -1950,13 +2017,13 @@
     const mine = weightsOf(d.me);
     const todays = mine.find((e) => e.day === d.today);
     if (todays && state.panel?.type !== 'weight') {
-      return `<div class="weight-today"><span>Today: <strong>${fmtLb(todays.lb)} lb</strong></span><button class="link" data-action="weight-edit">Change</button></div>`;
+      return `<div class="weight-today"><span>Today: <strong>${fmtLb(todays.lb)} ${wUnit()}</strong></span><button class="link" data-action="weight-edit">Change</button></div>`;
     }
     const last = mine[mine.length - 1];
     return `
       <form class="weight-form" data-form="weight">
-        <input name="lb" type="number" inputmode="decimal" step="0.1" min="50" max="800" placeholder="${last ? fmtLb(last.lb) : 'Weight'}" value="${todays ? fmtLb(todays.lb) : ''}" aria-label="Your weight today, in pounds" required>
-        <span class="weight-unit">lb</span>
+        <input name="lb" type="number" inputmode="decimal" step="0.1" min="${metric() ? 23 : 50}" max="${metric() ? 363 : 800}" placeholder="${last ? fmtLb(last.lb) : 'Weight'}" value="${todays ? fmtLb(todays.lb) : ''}" aria-label="Your weight today, in ${metric() ? 'kilograms' : 'pounds'}" required>
+        <span class="weight-unit">${wUnit()}</span>
         <button class="btn primary" type="submit">${todays ? 'Save' : 'Log'}</button>
       </form>`;
   }
@@ -1976,7 +2043,7 @@
           <button type="button" class="weight-hit" data-action="open-weight" aria-label="Open your weight history">
             <span class="icon-tile">${iconSvg('weight')}</span>
             <span class="weight-head">
-              ${last ? `<span class="weight-num">${fmtLb(last.lb)}<span> lb</span></span>
+              ${last ? `<span class="weight-num">${fmtLb(last.lb)}<span> ${wUnit()}</span></span>
                         <span class="small muted">${weightChange(month.length > 1 ? month : mine) || `Logged ${shortDate(last.day)}`}</span>`
                      : `<span class="weight-num empty">No weigh-ins yet</span><span class="small muted">Log it in the morning, same time each day.</span>`}
             </span>
@@ -1985,7 +2052,7 @@
           ${weightForm()}
           ${partners.map((m) => {
             const w = weightsOf(m.id);
-            return `<button type="button" class="weight-partner" data-action="open-weight">${avatar(m)}<span><strong>${esc(m.name)}</strong> ${fmtLb(w[w.length - 1].lb)} lb</span><span class="small muted">${weightChange(w.filter((e) => e.day >= addDays(d.today, -30)))}</span></button>`;
+            return `<button type="button" class="weight-partner" data-action="open-weight">${avatar(m)}<span><strong>${esc(m.name)}</strong> ${fmtLb(w[w.length - 1].lb)} ${wUnit()}</span><span class="small muted">${weightChange(w.filter((e) => e.day >= addDays(d.today, -30)))}</span></button>`;
           }).join('')}
         </article>
       </section>`;
@@ -2007,7 +2074,7 @@
       </header>
       <h1 class="title">Weight</h1>
       <section class="card weight-big">
-        ${last ? `<div class="weight-num">${fmtLb(last.lb)}<span> lb</span></div><p class="small muted">${weightChange(shown) || `Logged ${shortDate(last.day)}`}</p>` : '<p class="muted">No weigh-ins yet. Log one below.</p>'}
+        ${last ? `<div class="weight-num">${fmtLb(last.lb)}<span> ${wUnit()}</span></div><p class="small muted">${weightChange(shown) || `Logged ${shortDate(last.day)}`}</p>` : '<p class="muted">No weigh-ins yet. Log one below.</p>'}
         <div class="chips" role="tablist">${WEIGHT_RANGES.map(([k, label]) => `<button class="chip ${k === range ? 'on' : ''}" role="tab" aria-selected="${k === range}" data-action="weight-range" data-range="${k}">${label}</button>`).join('')}</div>
         ${shown.length > 1 ? weightChart(shown, 'you', true) : mine.length ? `<p class="small muted wchart-empty">${shown.length ? 'Log a few more days and your line shows up here.' : 'Nothing logged in this range.'}</p>` : ''}
         ${weightForm()}
@@ -2017,7 +2084,7 @@
         return `
           <section class="card weight-big">
             <div class="weight-who">${avatar(m)}<strong>${esc(m.name)}</strong></div>
-            <div class="weight-num">${fmtLb(weightsOf(m.id).slice(-1)[0].lb)}<span> lb</span></div>
+            <div class="weight-num">${fmtLb(weightsOf(m.id).slice(-1)[0].lb)}<span> ${wUnit()}</span></div>
             <p class="small muted">${weightChange(w)}</p>
             ${w.length > 1 ? weightChart(w, 'them', true) : '<p class="small muted wchart-empty">Not enough logged in this range.</p>'}
           </section>`;
@@ -2033,7 +2100,7 @@
             ${[...mine].reverse().map((e, i, arr) => {
               const prev = arr[i + 1];
               const diff = prev ? Math.round((e.lb - prev.lb) * 10) / 10 : null;
-              return `<li><span>${esc(shortDate(e.day))}</span><strong>${fmtLb(e.lb)} lb</strong><span class="small muted">${diff === null || diff === 0 ? '' : `${diff > 0 ? '+' : '−'}${fmtLb(Math.abs(diff))}`}</span><button class="icon-btn sm" data-action="weight-delete" data-day="${e.day}" aria-label="Delete ${esc(shortDate(e.day))}">${uiIcon('x')}</button></li>`;
+              return `<li><span>${esc(shortDate(e.day))}</span><strong>${fmtLb(e.lb)} ${wUnit()}</strong><span class="small muted">${diff === null || diff === 0 ? '' : `${diff > 0 ? '+' : '−'}${fmtLb(Math.abs(diff))}`}</span><button class="icon-btn sm" data-action="weight-delete" data-day="${e.day}" aria-label="Delete ${esc(shortDate(e.day))}">${uiIcon('x')}</button></li>`;
             }).join('')}
           </ul>
         </section>` : ''}`;
@@ -2070,7 +2137,7 @@
     const start = weekStart(state.dash.today);
     return state.dash.checkins.some((c) => c.habit_id === h.id && c.status === 'done' && c.day >= start && c.day <= addDays(start, 6));
   }
-  const UNIT_NAMES = { mi: 'miles', oz: 'ounces', g: 'grams', cal: 'calories', gal: 'gallons' };
+  const UNIT_NAMES = { mi: 'miles', oz: 'ounces', g: 'grams', cal: 'calories', gal: 'gallons', ml: 'ml', km: 'km' };
 
   // The + button: adds one tap's worth, or opens the how-much box when the
   // goal asks each time (step 0). `where` says which box to open.
@@ -2080,7 +2147,7 @@
     if (!(h.step > 0)) {
       return `<button class="${cls}" data-action="open-amount" data-where="${where}" data-habit="${h.id}"${onDay} aria-label="Log ${esc(UNIT_NAMES[h.unit] || h.unit)} for ${esc(h.title)}">${uiIcon('plus')}</button>`;
     }
-    const label = `+${stepLabel(h.step)}`;
+    const label = `+${stepLabel(h.unit === 'ml' ? Math.round(h.step) : h.step)}`;
     return `<button class="${cls} ${label.length > 3 ? 'long' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${h.step}"${onDay} aria-label="Add ${esc(fmtAmount(h.step, h.unit))} to ${esc(h.title)}"><span>${esc(label)}</span></button>`;
   }
 
@@ -2095,7 +2162,7 @@
       return `
       <form class="panel" data-form="amount-total" data-habit="${h.id}" ${day ? `data-day="${day}"` : ''}>
         <label for="amount-${h.id}">Where are you at${day ? ` for ${esc(dayName(day))}` : ' today'}? <span class="muted">(${esc(UNIT_NAMES[h.unit] || h.unit)} total, of ${esc(fmtAmount(h.daily_amount, h.unit))})</span>
-          <input id="amount-${h.id}" name="amount" type="number" inputmode="decimal" step="any" min="0" required placeholder="${have ? `${fmtAmount(have, '')} so far` : h.unit === 'g' ? 'e.g. 120' : 'e.g. 1800'}" data-autofocus>
+          <input id="amount-${h.id}" name="amount" type="number" inputmode="decimal" step="any" min="0" required placeholder="${have ? `${fmtAmount(have, h.unit, true)} so far` : h.unit === 'g' ? 'e.g. 120' : 'e.g. 1800'}" data-autofocus>
         </label>
         <div class="row">
           <button class="btn primary" type="submit">Update</button>
@@ -2123,9 +2190,10 @@
   }
 
   // 2.5 -> "2.5 mi", 2500 -> "2,500 cal"
-  function fmtAmount(n, unit) {
-    const num = Math.round(n * 100) / 100;
-    if (!unit) return num.toLocaleString();
+  // Pass bare = true for just the number, rounded the way the unit is.
+  function fmtAmount(n, unit, bare = false) {
+    const num = unit === 'ml' ? Math.round(n) : Math.round(n * 100) / 100;
+    if (!unit || bare) return num.toLocaleString();
     return `${num.toLocaleString()}${unit === 'g' ? '' : ' '}${unit}`;
   }
 
@@ -2148,7 +2216,7 @@
     if (mine && panelFor(h, 'card')) return amountPanel(h);
     return `
       <div class="amount-row ${whoClass(h.user_id)}">
-        <span class="amount-text"><strong>${esc(fmtAmount(total, ''))}</strong> / ${esc(fmtAmount(target, h.unit))} ${weekly(h) ? `this week${got ? ` · ${esc(fmtAmount(got, h.unit))} today` : ''}` : 'today'}</span>
+        <span class="amount-text"><strong>${esc(fmtAmount(total, h.unit, true))}</strong> / ${esc(fmtAmount(target, h.unit))} ${weekly(h) ? `this week${got ? ` · ${esc(fmtAmount(got, h.unit))} today` : ''}` : 'today'}</span>
         <span class="bar ${whoClass(h.user_id)}"><span style="width:${pct}%"></span></span>
         ${mine
           ? `<span class="amount-tools">
@@ -2252,12 +2320,21 @@
     if (day === state.dash.today) day = undefined; // "on Wednesday" only for other days
     const h = state.dash.habits.find((x) => x.id === habitId);
     const on = day ? { day } : {};
-    const res = await api('POST', '/api/amounts', reset ? { habit_id: habitId, reset: true, today: localToday(), ...on } : { habit_id: habitId, delta, today: localToday(), ...on });
+    const f = unitFactor(h.unit);
+    // A tap adds what the button says (+250 ml), not 249.89 from the oz it's stored in.
+    const snap = (v) => (h.unit === 'ml' ? Math.round(v) : Math.round(v * 100) / 100);
+    if (f !== 1 && !reset) delta = snap(delta);
+    // In ml or km, send the new total for the day (as shown, + the tap) so
+    // rounding to oz never adds up: 16 taps of 250 ml is exactly 4 L.
+    const change = reset ? { reset: true } : f !== 1 ? { set: toCanon(Math.max(0, snap(amountOn(h, day || state.dash.today)) + delta), h.unit) } : { delta };
+    const res = await api('POST', '/api/amounts', { habit_id: habitId, ...change, today: localToday(), ...on });
+    res.amount *= f;
+    res.total *= f;
     const wasDone = weekly(h) ? weekDone(h) : state.dash.checkins.some((c) => c.habit_id === habitId && c.day === (day || state.dash.today) && c.status === 'done');
     await refresh();
     const total = weekly(h)
-      ? `${fmtAmount(res.total, '')} / ${fmtAmount(weekTarget(h), h.unit)} this week`
-      : `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
+      ? `${fmtAmount(res.total, h.unit, true)} / ${fmtAmount(weekTarget(h), h.unit)} this week`
+      : `${fmtAmount(res.amount, h.unit, true)} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
     // Linked pacts update quietly: it's the same number everywhere.
     toast(reset ? `Reset to 0. ${total}.` : res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`);
   }
@@ -2269,9 +2346,11 @@
     const before = amountOn(h, day || state.dash.today);
     if (total === before) return render();
     const on = day ? { day } : {};
-    const res = await api('POST', '/api/amounts', { habit_id: habitId, set: total, today: localToday(), ...on });
+    const res = await api('POST', '/api/amounts', { habit_id: habitId, set: toCanon(total, h.unit), today: localToday(), ...on });
+    res.amount *= unitFactor(h.unit);
+    res.total *= unitFactor(h.unit);
     await refresh();
-    const where = `${fmtAmount(res.amount, '')} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
+    const where = `${fmtAmount(res.amount, h.unit, true)} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
     toast(res.done && before < h.daily_amount ? `${where}. Goal hit.` : `Now at ${where}.`);
   }
 
@@ -2286,11 +2365,12 @@
   const forms = {
     async weight(f) {
       markSeen('weight');
-      const lb = Number(f.lb.value);
-      if (!Number.isFinite(lb) || lb < 50 || lb > 800) throw new Error('Enter your weight in pounds');
+      const n = Number(f.lb.value);
+      const lb = metric() ? n / METRIC.lb[1] : n;
+      if (!Number.isFinite(lb) || lb < 50 || lb > 800) throw new Error(`Enter your weight in ${metric() ? 'kilograms' : 'pounds'}`);
       await api('POST', '/api/weights', { lb, today: localToday() });
       state.panel = null;
-      toast(`${fmtLb(lb)} lb logged.`);
+      toast(`${fmtLb(n)} ${wUnit()} logged.`);
       await refresh();
     },
     async signup(f) {
@@ -2381,9 +2461,10 @@
         challenge_days: f.challenge_days ? Number(f.challenge_days.value) : 0,
         ...(preset.track
           ? {
-              daily_amount: Number(f.amount.value) * (preset.track.per || 1),
-              unit: preset.track.unit,
-              step: preset.track.step, // change it later from the goal's ⋯ menu
+              // Sent in stored units (oz, miles), whatever you typed in.
+              daily_amount: toCanon(Number(f.amount.value) * (preset.track.per || 1), preset.track.unit),
+              unit: canonUnit(preset.track.unit),
+              step: toCanon(preset.track.step, preset.track.unit), // change it later from the goal's ⋯ menu
               amount_period: preset.track.period || 'day',
             }
           : {}),
@@ -2427,13 +2508,14 @@
         const title = presetTitle(preset, f.amount.value);
         if (!title) throw new Error(`Enter your goal in ${preset.unit}`);
         const amount = tracked(h) ? Number(f.amount.value) * (preset.track?.per || 1) : undefined;
-        if (title !== h.title || (amount !== undefined && amount !== h.daily_amount)) body.personal = { title, ...(amount !== undefined ? { daily_amount: amount } : {}) };
+        const changed = amount !== undefined && Math.abs(amount - h.daily_amount) > 0.01 * unitFactor(h.unit);
+        if (title !== h.title || changed) body.personal = { title, ...(changed ? { daily_amount: toCanon(amount, h.unit) } : {}) };
       }
       if (f.title && f.title.value.trim() !== h.title) body.personal = { title: f.title.value.trim() };
       if (f.step) {
         const step = f.step.value === '' ? 0 : Number(f.step.value);
         if (!Number.isFinite(step) || step < 0) throw new Error('Enter a tap size, or 0 to type it each time');
-        if (step !== h.step) body.step = step;
+        if (Math.abs(step - h.step) > (h.unit === 'ml' ? 0.5 : 0.001)) body.step = toCanon(step, h.unit);
       }
       const sched = parseSched(h.schedule);
       if (sched) {
@@ -2479,7 +2561,7 @@
     const p = PRESETS.find((x) => x.key === f.dataset.preset);
     const title = presetTitle(p, f.amount.value);
     if (!title) throw new Error(`Enter how many ${p.unit}`);
-    return { title, ...(p.track ? { daily_amount: Number(f.amount.value) * (p.track.per || 1) } : {}) };
+    return { title, ...(p.track ? { daily_amount: toCanon(Number(f.amount.value) * (p.track.per || 1), p.track.unit) } : {}) };
   }
 
   // ---------- notifications ----------
@@ -2789,7 +2871,7 @@
       toast(`Deleted ${shortDate(el.dataset.day)}.`, {
         label: 'Undo',
         run: async () => {
-          await api('POST', '/api/weights', { lb: e.lb, day: e.day, today: localToday() });
+          await api('POST', '/api/weights', { lb: metric() ? e.lb / METRIC.lb[1] : e.lb, day: e.day, today: localToday() });
           await refresh();
         },
       });
@@ -3001,6 +3083,13 @@
       guarded(async () => {
         ({ user: state.user } = await api('PATCH', '/api/me', { remind_at: el.value || null }));
         toast(el.value ? `Reminder set for ${el.selectedOptions[0].textContent}.` : 'Evening reminder off.');
+      });
+    } else if (el.dataset.action === 'set-units') {
+      guarded(async () => {
+        ({ user: state.user } = await api('PATCH', '/api/me', { units: el.value }));
+        if (state.pid) await loadDash(); // reloads in the new units
+        render();
+        toast(el.value === 'metric' ? 'Metric: ml, km and kg.' : 'US: oz, miles and lb.');
       });
     } else if (el.dataset.action === 'set-share-weight') {
       guarded(async () => {

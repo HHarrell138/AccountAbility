@@ -1016,3 +1016,9 @@ body:has(#toast:not([hidden])) .fab { bottom: calc(86px + env(safe-area-inset-bo
 .tips-reset { display: block; margin: 14px auto 0; }
 .tip-fab:has(+ .fab.away) { opacity: 0; pointer-events: none; transition: opacity 0.2s; }
 body:has(#toast:not([hidden])) .tip-fab { bottom: calc(160px + env(safe-area-inset-bottom)); }
+
+/* ---------- units ---------- */
+.units-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.unit-opt { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 14px; cursor: pointer; }
+.unit-opt.on { border-color: var(--you); background: var(--you-soft); }
+.unit-opt input { position: absolute; opacity: 0; pointer-events: none; }

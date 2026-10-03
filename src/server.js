@@ -188,7 +188,7 @@ function createApp({
   }
 
   // What the app knows about you: who you are, and your notification settings.
-  const USER_FIELDS = `u.id, u.name, u.username, u.email, u.tz, u.remind_at, u.notify_partner, u.share_weight,
+  const USER_FIELDS = `u.id, u.name, u.username, u.email, u.tz, u.remind_at, u.notify_partner, u.share_weight, u.units,
     (SELECT COUNT(*) FROM push_subs ps WHERE ps.user_id = u.id) AS push_count`;
   const currentUserById = (id) => q(`SELECT ${USER_FIELDS} FROM users u WHERE u.id = ?`).get(id);
 
@@ -559,6 +559,10 @@ function createApp({
     if (body.remind_at !== undefined) {
       if (body.remind_at !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.remind_at)) fail(400, 'Pick a reminder time');
       q('UPDATE users SET remind_at = ? WHERE id = ?').run(body.remind_at, user.id);
+    }
+    if (body.units !== undefined) {
+      if (body.units !== 'us' && body.units !== 'metric') fail(400, 'units must be us or metric');
+      q('UPDATE users SET units = ? WHERE id = ?').run(body.units, user.id);
     }
     if (body.share_weight !== undefined) q('UPDATE users SET share_weight = ? WHERE id = ?').run(body.share_weight ? 1 : 0, user.id);
     if (body.notify_partner !== undefined) q('UPDATE users SET notify_partner = ? WHERE id = ?').run(body.notify_partner ? 1 : 0, user.id);

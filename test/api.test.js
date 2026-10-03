@@ -1200,3 +1200,15 @@ test('change your first name in account settings', async (t) => {
   // Logging in still works the same: the email didn't change.
   assert.equal((await client(base)('POST', '/api/login', { login: 'hank@example.com', password: 'password123' })).status, 200);
 });
+
+test('units: us or metric, just how you see it', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const hank = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  assert.equal((await hank('GET', '/api/me')).data.user.units, 'us');
+  assert.equal((await hank('PATCH', '/api/me', { units: 'imperial' })).status, 400);
+  assert.equal((await hank('PATCH', '/api/me', { units: 'metric' })).data.user.units, 'metric');
+});
