@@ -85,6 +85,11 @@
       ends_day: h.ends_after ? L.addDays(today, h.ends_after - 1) : null,
     };
     db.habits.push(habit);
+    // Same as the server: a new wake-up goes to the top of its list.
+    if (habit.icon === 'wake') {
+      const others = db.habits.filter((x) => x.user_id === userId && x !== habit && !x.archived_day && !x.goal_id === !goalId && x.position);
+      habit.position = (others.length ? Math.min(...others.map((x) => x.position)) : 1) - 1 || -1;
+    }
     if (!goalId) addEvent({ actor_id: userId, habit_id: habit.id, kind: 'habit_added', message: h.ends_after ? `${h.ends_after}-day challenge` : `${habit.target_per_week}x / week` });
     return habit;
   }

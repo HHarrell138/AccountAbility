@@ -1141,3 +1141,41 @@ test('linked goals: a goal added mid-week picks up the whole week from your othe
   assert.equal(dash.habits.find((h) => h.id === mine.id).created_day, yesterday);
   assert.ok(dash.checkins.some((c) => c.habit_id === mine.id && c.day === yesterday && c.status === 'done'));
 });
+
+test('a new wake-up goal goes to the top of its list; reorder still moves it', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', email: 'king@example.com', password: 'password123' });
+  const p = (await hank('POST', '/api/partnerships', { name: 'P', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: p.invite_code });
+  const add = (title, icon, extra = {}) => hank('POST', '/api/habits', { partnership_id: p.id, title, icon, target_per_week: 5, today, ...extra }).then((r) => r.data.habit);
+  const order = async (shared) => {
+    const d = (await hank('GET', `/api/partnerships/${p.id}/dashboard?today=${today}`)).data;
+    return d.habits.filter((h) => h.user_id === d.me && !!h.goal_id === shared)
+      .sort((a, b) => (a.position || 1e9) - (b.position || 1e9) || a.id - b.id).map((h) => h.title);
+  };
+  const read = await add('Read', 'read');
+  const lift = await add('Work out', 'workout');
+  await hank('POST', `/api/partnerships/${p.id}/order`, { habit_ids: [read.id, lift.id] });
+  const sched = { mon: '06:00', tue: '06:00', wed: '06:00', thu: '06:00', fri: '06:00' };
+  const wake = await add('Wake up by 6:00 AM', 'wake', { schedule: sched });
+  assert.deepEqual(await order(false), ['Wake up by 6:00 AM', 'Read', 'Work out']);
+  // You can still put it wherever you like.
+  await hank('POST', `/api/partnerships/${p.id}/order`, { habit_ids: [read.id, wake.id, lift.id] });
+  assert.deepEqual(await order(false), ['Read', 'Wake up by 6:00 AM', 'Work out']);
+
+  // Shared too: agreed last, still first in shared goals, for both of you.
+  for (const title of ['Pray', 'Stretch']) {
+    const g = (await hank('POST', '/api/goals', { partnership_id: p.id, title, target_per_week: 3, today })).data.goal;
+    await king('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+  }
+  const g = (await hank('POST', '/api/goals', { partnership_id: p.id, title: 'Wake up on schedule', icon: 'wake', target_per_week: 5, schedule: sched, today })).data.goal;
+  await king('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today, schedule: sched });
+  assert.equal((await order(true))[0], 'Wake up on schedule');
+});

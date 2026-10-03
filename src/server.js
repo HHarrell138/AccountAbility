@@ -839,6 +839,20 @@ function createApp({
 
   // Leaves older than 24 hours can't be undone any more. A pact that's been
   // empty since then is deleted for real, with everything in it.
+  // A new wake-up goal goes to the top of its list (shared or side goals),
+  // since it's the first thing of the day. Reorder moves it anywhere after.
+  // Position 0 means "never ordered" and sorts last, so the top is below
+  // the smallest position in use.
+  function wakeToTop(h) {
+    if (h.icon !== 'wake') return;
+    const { m } = q(
+      `SELECT MIN(position) AS m FROM habits WHERE partnership_id = ? AND user_id = ? AND id != ? AND position != 0
+       AND archived_day IS NULL AND (goal_id IS NULL) = ?`
+    ).get(h.partnership_id, h.user_id, h.id, h.goal_id ? 0 : 1);
+    const pos = (m ?? 1) - 1 || -1;
+    q('UPDATE habits SET position = ? WHERE id = ?').run(pos, h.id);
+  }
+
   function purgeLeaves() {
     q(`DELETE FROM leaves WHERE created_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')`).run();
     q(`DELETE FROM partnerships WHERE id NOT IN (SELECT partnership_id FROM memberships)
@@ -1111,6 +1125,7 @@ function createApp({
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
       ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, amount_period, today, days ? L.addDays(today, days - 1) : null);
       addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: days ? `${days}-day challenge` : `${target}x / week` });
+      wakeToTop(habit);
       catchUp(habit, today); // starts with what you already logged this week on the same goal elsewhere
       return { habit };
     });
@@ -1253,6 +1268,7 @@ function createApp({
           goal.ends_after ? L.addDays(today, goal.ends_after - 1) : null)); // the clock starts when you both agree
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
+      created.forEach(wakeToTop);
       created.forEach((h) => catchUp(h, today)); // each of you picks up this week from your other pacts
       return { ok: true };
     });
@@ -1479,6 +1495,13 @@ function createApp({
   }
 
   purgeLeaves(); // pacts left empty for over a day go at startup too
+  // Once: wake-up goals added before they went to the top move there now.
+  if (!q("SELECT 1 FROM settings WHERE key = 'wake_top_v1'").get()) {
+    tx(() => {
+      q("SELECT * FROM habits WHERE icon = 'wake' AND archived_day IS NULL").all().forEach(wakeToTop);
+      q("INSERT INTO settings (key, value) VALUES ('wake_top_v1', '1')").run();
+    });
+  }
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

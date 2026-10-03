@@ -983,6 +983,12 @@
       // Shared first, in *your* order (your partner's rows follow it too, so
       // the bars line up), then side goals in their owner's order.
       .sort((a, b) => (a.goal_id ? 0 : 1) - (b.goal_id ? 0 : 1) || byOrder(inMyOrder(a), inMyOrder(b)));
+    // The wake-up leads the day: if it's at the top of its section (where a
+    // new one goes), it's first in Today too, side goal or not. Move it down
+    // with Reorder and it stays with its section.
+    const firstSide = goals.find((h) => !h.goal_id);
+    const lead = goals.filter((h) => h.icon === 'wake' && (h === goals[0] || h === firstSide));
+    if (lead.length) goals.splice(0, goals.length, ...lead, ...goals.filter((h) => !lead.includes(h)));
     const items = goals.map((h) => {
       const c = d.checkins.find((x) => x.habit_id === h.id && x.day === d.today);
       const sched = parseSched(h.schedule);
