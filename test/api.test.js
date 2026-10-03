@@ -1084,3 +1084,60 @@ test('weight: yours, shared only if you say so; and the waiting-for-your-yes cou
   assert.deepEqual(h.waiting, { [a.id]: 2, [b.id]: 1 });
   assert.deepEqual((await king('GET', `/api/partnerships/${a.id}/dashboard?today=${today}`)).data.waiting, {});
 });
+
+test('linked goals: a goal added mid-week picks up the whole week from your other pacts', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  // Two days in the same week, within a day of the real date.
+  let today = L.utcToday();
+  if (L.weekStart(today) === today) today = L.addDays(today, 1);
+  const yesterday = L.addDays(today, -1);
+  const hank = client(base);
+  const king = client(base);
+  const brax = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', email: 'king@example.com', password: 'password123' });
+  await brax('POST', '/api/signup', { name: 'Braxton', email: 'brax@example.com', password: 'password123' });
+  const withKing = (await hank('POST', '/api/partnerships', { name: 'King', today: yesterday })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: withKing.invite_code });
+  const withBrax = (await hank('POST', '/api/partnerships', { name: 'Braxton', today: yesterday })).data.partnership;
+  await brax('POST', '/api/partnerships/join', { code: withBrax.invite_code });
+  const lift = { title: 'Work out', icon: 'workout', target_per_week: 4 };
+  const water = { title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, daily_amount: 128, unit: 'oz', step: 8 };
+
+  // Yesterday with King: a workout, and a full gallon.
+  const l1 = (await hank('POST', '/api/habits', { partnership_id: withKing.id, ...lift, today: yesterday })).data.habit;
+  const w1 = (await hank('POST', '/api/habits', { partnership_id: withKing.id, ...water, today: yesterday })).data.habit;
+  await hank('POST', '/api/checkins', { habit_id: l1.id, status: 'done', today: yesterday });
+  await hank('POST', '/api/amounts', { habit_id: w1.id, delta: 128, today: yesterday });
+
+  // Today Braxton agrees to working out together: yesterday's workout is already there.
+  const g = (await hank('POST', '/api/goals', { partnership_id: withBrax.id, ...lift, today })).data.goal;
+  await brax('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+  let dash = (await hank('GET', `/api/partnerships/${withBrax.id}/dashboard?today=${today}`)).data;
+  const mine = dash.habits.find((h) => h.goal_id === g.id && h.user_id === dash.me);
+  const his = dash.habits.find((h) => h.goal_id === g.id && h.user_id !== dash.me);
+  assert.equal(mine.created_day, yesterday);
+  assert.ok(dash.checkins.some((c) => c.habit_id === mine.id && c.day === yesterday && c.status === 'done'));
+  assert.equal(dash.week.members[dash.me].habits.find((x) => x.habit_id === mine.id).done, 1);
+  // Braxton logged nothing elsewhere: his starts today, nothing backdated.
+  assert.equal(his.created_day, today);
+  // Old workouts don't flood the feed.
+  assert.equal(dash.events.filter((e) => e.habit_id === mine.id && e.kind.startsWith('done')).length, 0);
+
+  // Water too: the gallon from yesterday counts as done here.
+  const w2 = (await hank('POST', '/api/habits', { partnership_id: withBrax.id, ...water, today })).data.habit;
+  dash = (await hank('GET', `/api/partnerships/${withBrax.id}/dashboard?today=${today}`)).data;
+  assert.equal(dash.amounts.find((a) => a.habit_id === w2.id && a.day === yesterday)?.amount, 128);
+  assert.ok(dash.checkins.some((c) => c.habit_id === w2.id && c.day === yesterday && c.status === 'done'));
+
+  // A goal added before catch-up covered the week (started today, nothing
+  // copied): opening the pact fills it in, once.
+  server.db.prepare('UPDATE habits SET created_day = ? WHERE id = ?').run(today, mine.id);
+  server.db.prepare('DELETE FROM checkins WHERE habit_id = ? AND day = ?').run(mine.id, yesterday);
+  dash = (await brax('GET', `/api/partnerships/${withBrax.id}/dashboard?today=${today}`)).data;
+  assert.equal(dash.habits.find((h) => h.id === mine.id).created_day, yesterday);
+  assert.ok(dash.checkins.some((c) => c.habit_id === mine.id && c.day === yesterday && c.status === 'done'));
+});

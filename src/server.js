@@ -244,18 +244,59 @@ function createApp({
       });
   }
 
-  // A goal just added in one pact starts with what you already logged today
-  // on the same goal in your other pacts, so you never log it twice.
-  function catchUp(h) {
-    const day = h.created_day;
+  // A goal added in one pact starts with what you already logged this week on
+  // the same goal in your other pacts, so you never log it twice and the week
+  // you're in counts in full: it's backdated to the start of the week (or to
+  // when the linked goal started, if that's later). Copied quietly: no feed
+  // entries or notifications for logs your partner already heard about.
+  // Your own logs here always win. Returns true if anything changed.
+  function catchUp(h, today = h.created_day, { justAdded = true } = {}) {
     const links = linkedHabits(h);
-    if (!links.length) return;
-    if (h.daily_amount > 0) {
-      const got = Math.max(...links.map((x) => q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(x.id, day)?.amount || 0));
-      if (got > 0) applyAmount(h, day, got, 0);
-    } else if (links.some((x) => q(`SELECT 1 FROM checkins WHERE habit_id = ? AND day = ? AND status = 'done'`).get(x.id, day))) {
-      writeCheckin(h, day, 'done', '', 0);
+    if (!links.length) return false;
+    const ws = L.weekStart(today);
+    const ids = links.map((x) => x.id);
+    const marks = ids.map(() => '?').join(',');
+    const earliest = links.reduce((m, x) => (x.created_day < m ? x.created_day : m), h.created_day);
+    let from = earliest < ws ? ws : earliest;
+    // Only backdate for real history: nothing logged earlier this week means
+    // the goal starts today, with the week's target cut to the days left.
+    const history = from < h.created_day && (
+      q(`SELECT 1 FROM checkins WHERE habit_id IN (${marks}) AND day >= ? AND day < ?`).get(...ids, from, h.created_day) ||
+      q(`SELECT 1 FROM amounts WHERE habit_id IN (${marks}) AND day >= ? AND day < ? AND amount > 0`).get(...ids, from, h.created_day));
+    if (!history) from = h.created_day;
+    const fresh = justAdded && h.created_day === today; // just added: pull today in too
+    if (from >= h.created_day && !fresh) return false; // already caught up
+    if (from < h.created_day) {
+      q('UPDATE habits SET created_day = ? WHERE id = ?').run(from, h.id);
+      h.created_day = from;
     }
+    for (let day = from; day <= today; day = L.addDays(day, 1)) {
+      if (h.daily_amount > 0) {
+        if (q('SELECT 1 FROM amounts WHERE habit_id = ? AND day = ?').get(h.id, day)) continue;
+        const got = q(`SELECT MAX(amount) AS a FROM amounts WHERE habit_id IN (${marks}) AND day = ?`).get(...ids, day)?.a || 0;
+        if (got > 0) q('INSERT INTO amounts (habit_id, day, amount) VALUES (?, ?, ?)').run(h.id, day, got);
+        // Each pact's own target: done here only if it's enough here.
+        if (h.amount_period !== 'week' && got >= h.daily_amount && !q('SELECT 1 FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day)) {
+          q(`INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, 'done', '', 0)`).run(h.id, h.user_id, day);
+        }
+        continue;
+      }
+      if (q('SELECT 1 FROM checkins WHERE habit_id = ? AND day = ?').get(h.id, day)) continue;
+      // Done anywhere counts; otherwise a logged miss (and its reason) carries over.
+      const c = q(`SELECT status, note, late FROM checkins WHERE habit_id IN (${marks}) AND day = ? ORDER BY status = 'done' DESC LIMIT 1`).get(...ids, day);
+      if (c) q('INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, ?, ?, ?)').run(h.id, h.user_id, day, c.status, c.note, c.late);
+    }
+    // A weekly total (miles): done once the week's copied miles reach this pact's target.
+    if (h.daily_amount > 0 && h.amount_period === 'week') {
+      const total = q('SELECT COALESCE(SUM(amount), 0) AS t FROM amounts WHERE habit_id = ? AND day BETWEEN ? AND ?').get(h.id, ws, L.addDays(ws, 6)).t;
+      const last = q('SELECT MAX(day) AS d FROM amounts WHERE habit_id = ? AND day BETWEEN ? AND ?').get(h.id, ws, today).d;
+      const done = q(`SELECT 1 FROM checkins WHERE habit_id = ? AND day BETWEEN ? AND ? AND status = 'done'`).get(h.id, ws, L.addDays(ws, 6));
+      if (last && !done && total >= L.weeklyAmountTarget(h, ws)) {
+        q(`INSERT INTO checkins (habit_id, user_id, day, status, note, late) VALUES (?, ?, ?, 'done', '', 0)
+           ON CONFLICT (habit_id, day) DO NOTHING`).run(h.id, h.user_id, last);
+      }
+    }
+    return true;
   }
 
   // A pact's name as one person sees it: their own name for it, if they set
@@ -856,6 +897,11 @@ function createApp({
     const p = requireMember(params.id, user.id);
     const today = clientToday(query.get('today'));
     finishChallenges(p.id, today);
+    // Goals added mid-week before catch-up covered the whole week: pull in
+    // the rest of the week from the same goal in other pacts (one time each).
+    const ws = L.weekStart(today);
+    const behind = q('SELECT * FROM habits WHERE partnership_id = ? AND archived_day IS NULL AND created_day > ? AND created_day <= ?').all(p.id, ws, today);
+    if (behind.length) tx(() => behind.forEach((h) => catchUp(h, today, { justAdded: false })));
     const ids = memberIds(p.id);
     const members = q(
       `SELECT u.id, u.name, u.username FROM users u JOIN memberships m ON m.user_id = u.id
@@ -1065,7 +1111,7 @@ function createApp({
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
       ).get(p.id, user.id, title, why, target, icon, schedule, daily_amount, unit, step, amount_period, today, days ? L.addDays(today, days - 1) : null);
       addEvent({ partnership_id: p.id, actor_id: user.id, habit_id: habit.id, kind: 'habit_added', message: days ? `${days}-day challenge` : `${target}x / week` });
-      catchUp(habit); // starts with what you already logged today on the same goal elsewhere
+      catchUp(habit, today); // starts with what you already logged this week on the same goal elsewhere
       return { habit };
     });
   });
@@ -1207,7 +1253,7 @@ function createApp({
           goal.ends_after ? L.addDays(today, goal.ends_after - 1) : null)); // the clock starts when you both agree
       }
       addEvent({ partnership_id: goal.partnership_id, actor_id: user.id, target_id: goal.proposed_by, kind: 'goal_accepted', message: label });
-      created.forEach(catchUp); // each of you picks up what you already logged today in your other pacts
+      created.forEach((h) => catchUp(h, today)); // each of you picks up this week from your other pacts
       return { ok: true };
     });
   });
@@ -1475,6 +1521,7 @@ function createApp({
   server.on('close', () => db.close());
   server.runReminders = runReminders; // for tests
   server.runWakeAlerts = runWakeAlerts;
+  server.db = db; // for tests
   return server;
 }
 
