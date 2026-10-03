@@ -923,6 +923,14 @@
         ${notificationsBody()}
       </section>
 
+      <form class="card settings-card" data-form="name">
+        <h2 class="card-title">Name</h2>
+        <p class="small muted">Your first name. It's what your partners see, and your circle's letter.</p>
+        <label for="acct-name" class="sr-only">First name</label>
+        <input id="acct-name" name="name" autocomplete="given-name" autocapitalize="words" maxlength="40" required value="${esc(state.user.name)}">
+        <button class="btn" type="submit">Save name</button>
+      </form>
+
       <form class="card settings-card" data-form="email">
         <h2 class="card-title">Email</h2>
         <p class="small muted">${state.user.email ? 'You log in with this, and a forgotten-password code comes here.' : 'Add your email to log in with it, and to reset your password by email if you forget it.'}</p>
@@ -2308,6 +2316,15 @@
       state.reset = null;
       await boot();
       toast('New password set. You’re in.');
+    },
+    async name(f) {
+      const name = f.name.value.trim();
+      if (!name) throw new Error('Enter your first name');
+      if (name === state.user.name) return;
+      ({ user: state.user } = await api('PATCH', '/api/me', { name }));
+      if (state.pid) await loadDash();
+      render();
+      toast(`Saved. You're ${name} now.`);
     },
     async email(f) {
       const { user } = await api('PATCH', '/api/me', { email: f.email.value });

@@ -232,6 +232,7 @@
 
   const routes = [
     ['PATCH', /^\/api\/me$/, (b) => {
+      if (b.name !== undefined) db.me.name = text(b.name, 'Name', { max: 40 });
       if (b.share_weight !== undefined) db.me.share_weight = b.share_weight ? 1 : 0;
       if (b.notify_partner !== undefined) db.me.notify_partner = b.notify_partner ? 1 : 0;
       if (b.remind_at !== undefined) db.me.remind_at = b.remind_at;

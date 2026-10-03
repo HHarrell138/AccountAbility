@@ -1179,3 +1179,24 @@ test('a new wake-up goal goes to the top of its list; reorder still moves it', a
   await king('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today, schedule: sched });
   assert.equal((await order(true))[0], 'Wake up on schedule');
 });
+
+test('change your first name in account settings', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  await hank('POST', '/api/signup', { name: 'Hank', email: 'hank@example.com', password: 'password123' });
+  await king('POST', '/api/signup', { name: 'King', email: 'king@example.com', password: 'password123' });
+  const p = (await hank('POST', '/api/partnerships', { today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: p.invite_code });
+  assert.equal((await hank('PATCH', '/api/me', { name: '   ' })).status, 400);
+  assert.equal((await hank('PATCH', '/api/me', { name: 'x'.repeat(41) })).status, 400);
+  assert.equal((await hank('PATCH', '/api/me', { name: ' Henry ' })).data.user.name, 'Henry');
+  const d = (await king('GET', `/api/partnerships/${p.id}/dashboard?today=${today}`)).data;
+  assert.ok(d.members.some((m) => m.name === 'Henry'));
+  // Logging in still works the same: the email didn't change.
+  assert.equal((await client(base)('POST', '/api/login', { login: 'hank@example.com', password: 'password123' })).status, 200);
+});

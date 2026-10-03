@@ -548,6 +548,8 @@ function createApp({
   // Add or change your email, so you can log in with it.
   // Your email and notification settings. Only what's sent changes.
   route('PATCH', '/api/me', ({ user, body }) => {
+    // Your first name, as your partners see it everywhere.
+    if (body.name !== undefined) q('UPDATE users SET name = ? WHERE id = ?').run(str(body.name, 'Name', { max: 40 }), user.id);
     if (body.email !== undefined) {
       const email = parseEmail(body.email);
       const taken = q('SELECT id FROM users WHERE (email = ? OR username = ?) AND id != ?').get(email, email, user.id);
