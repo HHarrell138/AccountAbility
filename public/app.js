@@ -20,6 +20,8 @@
     sleep: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
     run: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"/>',
     prayer: '<path d="M12 3.5c-1.6 1.6-2.6 4-2.6 6.8v3.6l-3.2 3.5 2.2 3.1 3.6-3.4z"/><path d="M12 3.5c1.6 1.6 2.6 4 2.6 6.8v3.6l3.2 3.5-2.2 3.1-3.6-3.4z"/>',
+    creatine: '<path d="M3.5 10.5h12v2.5a6 6 0 0 1-12 0z"/><path d="M15.5 11.5h5"/><path d="M7 7.5l.8-2M10.5 7.5l.3-2.5M13.5 7.5l-.6-2"/>',
+    teeth: '<path d="M8 3.5c-2.5 0-4 1.8-4 4.3 0 2.3 1 3.6 1.6 5.7.6 2.2.9 6.5 2.6 6.5 1.6 0 1.6-4.4 3.8-4.4s2.2 4.4 3.8 4.4c1.7 0 2-4.3 2.6-6.5.6-2.1 1.6-3.4 1.6-5.7 0-2.5-1.5-4.3-4-4.3-1.6 0-2.6.8-4 .8s-2.4-.8-4-.8z"/>',
     weight: '<rect x="4" y="4" width="16" height="16" rx="4.5"/><path d="M8.5 10a5 5 0 0 1 7 0"/><path d="M12 10.2l1.3-1.8"/>',
     sober: '<path d="M7.5 3.5h9l-.6 5.2a3.9 3.9 0 0 1-7.8 0z"/><path d="M12 12.6v6.9M8.5 19.5h7"/><path d="M4 4l16 16"/>',
     wake: '<circle cx="12" cy="13.5" r="7"/><path d="M12 10v3.5l2.5 1.5"/><path d="M4 6.5L7 4M20 6.5L17 4"/>',
@@ -58,6 +60,9 @@
     { key: 'sleep', icon: 'sleep', label: 'Sleep', title: (n) => `Sleep ${n} hours`, amount: 8, min: 4, unit: 'hours', days: 5 },
     { key: 'wake', icon: 'wake', label: 'Wake up', schedule: { mon: '06:00', tue: '06:00', wed: '06:00', thu: '06:00', fri: '06:00', sat: '08:00', sun: '08:00' } },
     { key: 'prayer', icon: 'prayer', label: 'Prayer', title: () => 'Dedicated prayer', days: 7 },
+    { key: 'creatine', icon: 'creatine', label: 'Creatine', title: () => 'Take creatine', days: 7 },
+    // Twice a day: a goal of 2, one tap per brushing. Morning and night is on you.
+    { key: 'teeth', icon: 'teeth', label: 'Brush teeth', title: () => 'Brush teeth twice a day', days: 7, fixed: 2, track: { unit: 'times', step: 1 } },
     { key: 'sober', icon: 'sober', label: 'No alcohol', title: () => 'No alcohol', days: 7, challenge: 30 },
     { key: 'custom', icon: 'check', label: 'Custom goal', days: 5 },
   ];
@@ -248,7 +253,7 @@
       ['fab', !shared.length && !proposed.length],
       ['needs-yes', proposed.some((g) => !isMe(g.proposed_by))],
       ['log', today.some((i) => i.status === 'todo' && !tracked(i.h))],
-      ['amount-step', today.some((i) => tracked(i.h) && !typed(i.h) && !weekly(i.h))],
+      ['amount-step', today.some((i) => tracked(i.h) && !typed(i.h) && !weekly(i.h) && !twice(i.h))],
       ['amount-typed', today.some((i) => typed(i.h))],
       ['amount-week', today.some((i) => weekly(i.h))],
       ['board', partner && shared.length],
@@ -1161,6 +1166,7 @@
               <span class="today-title">${esc(todayTitle(h))}${tracked(h) && status !== 'missed'
                 ? `<span class="today-amount">${weekly(h)
                     ? `${esc(fmtAmount(weekTotal(h), h.unit, true))} / ${esc(fmtAmount(weekTarget(h), h.unit))} this week`
+                    : twice(h) ? `${amountOn(h, d.today)} of ${h.daily_amount} today`
                     : `${esc(fmtAmount(amountOn(h, d.today), h.unit, true))} / ${esc(fmtAmount(h.daily_amount, h.unit))}`}</span>`
                 : ''}</span>
               ${h.goal_id ? '<span class="tag">shared</span>' : ''}
@@ -1719,6 +1725,9 @@
                ${shared ? firstTime(`form-${preset.key}`, `<p class="small muted">${partnerName} sets their own times when they agree.</p>`) : ''}
                <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(schedTitle(preset.schedule, shared))}</span></p>
                <p class="small muted" data-role="preview-sub">${esc(schedLine(preset.schedule))}</p>`
+          : preset.fixed
+            ? `<p class="preview-title">${iconSvg(preset.icon)}<span>${esc(preset.title())}</span></p>
+               ${firstTime(`form-${preset.key}`, '<p class="small muted">Tap the check after you brush, morning and night. Two taps and today\'s done.</p>')}`
           : preset.amount
             ? `<label for="${kind}-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
@@ -2112,6 +2121,8 @@
   // Protein and calories: + always opens a box to type the amount.
   const typed = (h) => h.icon === 'protein' || h.icon === 'calories';
   const weekly = (h) => tracked(h) && h.amount_period === 'week';
+  // Brush teeth: two check-offs a day.
+  const twice = (h) => h.icon === 'teeth' && tracked(h);
 
   // Days you can log: today, and yesterday (marked late). Mirrors canLog in
   // src/logic.js.
@@ -2144,6 +2155,11 @@
   function plusButton(h, on, where, small = false, day = null) {
     const cls = `tick you plus ${small ? 'sm' : ''} ${on ? 'on' : ''}`;
     const onDay = day ? ` data-day="${day}"` : '';
+    if (twice(h)) {
+      const n = amountOn(h, day || state.dash.today);
+      const full = n >= h.daily_amount;
+      return `<button class="tick you ${small ? 'sm' : ''} ${full ? 'on' : n > 0 ? 'half' : ''}" data-action="add-amount" data-habit="${h.id}" data-delta="${full ? -1 : 1}"${onDay} aria-label="${full ? `Both done. Tap to take one back.` : `Brushed (${n} of ${h.daily_amount} so far)`}">${uiIcon('done')}</button>`;
+    }
     if (!(h.step > 0)) {
       return `<button class="${cls}" data-action="open-amount" data-where="${where}" data-habit="${h.id}"${onDay} aria-label="Log ${esc(UNIT_NAMES[h.unit] || h.unit)} for ${esc(h.title)}">${uiIcon('plus')}</button>`;
     }
@@ -2216,13 +2232,13 @@
     if (mine && panelFor(h, 'card')) return amountPanel(h);
     return `
       <div class="amount-row ${whoClass(h.user_id)}">
-        <span class="amount-text"><strong>${esc(fmtAmount(total, h.unit, true))}</strong> / ${esc(fmtAmount(target, h.unit))} ${weekly(h) ? `this week${got ? ` · ${esc(fmtAmount(got, h.unit))} today` : ''}` : 'today'}</span>
+        <span class="amount-text">${twice(h) ? `<strong>${total}</strong> of ${target} today · ${total >= target ? 'morning and night done' : total ? 'one more to go' : 'morning and night'}` : `<strong>${esc(fmtAmount(total, h.unit, true))}</strong> / ${esc(fmtAmount(target, h.unit))} ${weekly(h) ? `this week${got ? ` · ${esc(fmtAmount(got, h.unit))} today` : ''}` : 'today'}`}</span>
         <span class="bar ${whoClass(h.user_id)}"><span style="width:${pct}%"></span></span>
         ${mine
           ? `<span class="amount-tools">
-               ${got > 0 && h.step > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
+               ${twice(h) ? (got > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="-1">Undo one</button>` : '') : `${got > 0 && h.step > 0 ? `<button class="link quiet" data-action="add-amount" data-habit="${h.id}" data-delta="${-h.step}" aria-label="Take back ${esc(fmtAmount(h.step, h.unit))}">${uiIcon('minus')}${esc(fmtAmount(h.step, h.unit))}</button>` : ''}
                ${h.step > 0 ? `<button class="link" data-action="open-amount" data-where="card" data-habit="${h.id}">Add…</button>` : ''}
-               ${got > 0 ? `<button class="link quiet" data-action="reset-amount" data-habit="${h.id}">${weekly(h) ? 'Reset today' : 'Reset'}</button>` : ''}
+               ${got > 0 ? `<button class="link quiet" data-action="reset-amount" data-habit="${h.id}">${weekly(h) ? 'Reset today' : 'Reset'}</button>` : ''}`}
              </span>`
           : ''}
       </div>`;
@@ -2335,6 +2351,7 @@
     const total = weekly(h)
       ? `${fmtAmount(res.total, h.unit, true)} / ${fmtAmount(weekTarget(h), h.unit)} this week`
       : `${fmtAmount(res.amount, h.unit, true)} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
+    if (twice(h)) return toast(delta < 0 ? `Took one back. ${res.amount} of ${h.daily_amount} today.` : res.amount >= h.daily_amount ? 'Brushed. Both done today.' : 'Brushed. One more tonight.');
     // Linked pacts update quietly: it's the same number everywhere.
     toast(reset ? `Reset to 0. ${total}.` : res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`);
   }
@@ -2462,7 +2479,7 @@
         ...(preset.track
           ? {
               // Sent in stored units (oz, miles), whatever you typed in.
-              daily_amount: toCanon(Number(f.amount.value) * (preset.track.per || 1), preset.track.unit),
+              daily_amount: preset.fixed || toCanon(Number(f.amount.value) * (preset.track.per || 1), preset.track.unit),
               unit: canonUnit(preset.track.unit),
               step: toCanon(preset.track.step, preset.track.unit), // change it later from the goal's ⋯ menu
               amount_period: preset.track.period || 'day',

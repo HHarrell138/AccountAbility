@@ -22,7 +22,7 @@ const NUDGES_PER_DAY = 10;
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 // Must match the icon keys in public/app.js.
-const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake', 'run', 'prayer', 'sober'];
+const HABIT_ICONS = ['check', 'water', 'protein', 'calories', 'calorie-cap', 'workout', 'steps', 'read', 'sleep', 'wake', 'run', 'prayer', 'sober', 'creatine', 'teeth'];
 // Logged by typing the amount each time, never a fixed + tap.
 const TYPED_ICONS = ['protein', 'calories'];
 const round2 = (n) => Math.round(n * 100) / 100;

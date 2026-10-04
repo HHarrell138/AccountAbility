@@ -55,6 +55,10 @@ test('two people make a pact and hold each other accountable', async (t) => {
   const water = await hank('POST', '/api/habits', { partnership_id: pid, title: 'Drink 1 gallon of water', icon: 'water', target_per_week: 7, today });
   assert.equal(water.data.habit.icon, 'water');
   const wake = await hank('POST', '/api/habits', { partnership_id: pid, title: 'Wake up by 6:00 AM', icon: 'wake', target_per_week: 5, today });
+  assert.equal((await hank('POST', '/api/habits', { partnership_id: pid, title: 'Take creatine', icon: 'creatine', target_per_week: 7, today })).status, 200);
+  const teeth = (await hank('POST', '/api/habits', { partnership_id: pid, title: 'Brush teeth twice a day', icon: 'teeth', target_per_week: 7, daily_amount: 2, unit: 'times', step: 1, today })).data.habit;
+  assert.equal((await hank('POST', '/api/amounts', { habit_id: teeth.id, delta: 1, today })).data.done, false);
+  assert.equal((await hank('POST', '/api/amounts', { habit_id: teeth.id, delta: 1, today })).data.done, true);
   assert.equal(wake.data.habit.icon, 'wake');
   assert.equal((await hank('POST', '/api/habits', { partnership_id: pid, title: 'X', icon: '<script>', target_per_week: 7, today })).status, 400);
 

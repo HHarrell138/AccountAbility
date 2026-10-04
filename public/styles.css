@@ -1022,3 +1022,8 @@ body:has(#toast:not([hidden])) .tip-fab { bottom: calc(160px + env(safe-area-ins
 .unit-opt { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 14px; cursor: pointer; }
 .unit-opt.on { border-color: var(--you); background: var(--you-soft); }
 .unit-opt input { position: absolute; opacity: 0; pointer-events: none; }
+
+/* Brush teeth: the check fills halfway after the first brushing. */
+.tick.you.half { border-color: var(--you); background: linear-gradient(to top, var(--you-soft) 50%, transparent 50%); color: var(--you); }
+.icon-tile:has(.i-teeth) { --tile: var(--c-water-bg); --tint: var(--c-water); }
+.icon-tile:has(.i-creatine) { --tile: var(--c-food-bg); --tint: var(--c-food); }
