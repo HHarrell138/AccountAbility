@@ -1216,3 +1216,39 @@ test('units: us or metric, just how you see it', async (t) => {
   assert.equal((await hank('PATCH', '/api/me', { units: 'imperial' })).status, 400);
   assert.equal((await hank('PATCH', '/api/me', { units: 'metric' })).data.user.units, 'metric');
 });
+
+test('goals tab: shared goals from your other pacts that this one does not have', async (t) => {
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const hank = client(base);
+  const king = client(base);
+  const kona = client(base);
+  for (const [c, name] of [[hank, 'Hank'], [king, 'King'], [kona, 'Kona']]) {
+    await c('POST', '/api/signup', { name, email: `${name.toLowerCase()}@example.com`, password: 'password123' });
+  }
+  const withKing = (await hank('POST', '/api/partnerships', { name: 'King', today })).data.partnership;
+  await king('POST', '/api/partnerships/join', { code: withKing.invite_code });
+  const withKona = (await hank('POST', '/api/partnerships', { name: 'Kona', today })).data.partnership;
+  await kona('POST', '/api/partnerships/join', { code: withKona.invite_code });
+  const share = async (pid, partner, goal) => {
+    const g = (await hank('POST', '/api/goals', { partnership_id: pid, target_per_week: 4, today, ...goal })).data.goal;
+    await partner('POST', `/api/goals/${g.id}/respond`, { answer: 'accept', today });
+  };
+  await share(withKing.id, king, { title: 'Work out', icon: 'workout' });
+  await share(withKona.id, kona, { title: 'Work out', icon: 'workout' }); // same goal: not "elsewhere"
+  await share(withKona.id, kona, { title: 'Read 20 pages', icon: 'read' });
+  await hank('POST', '/api/habits', { partnership_id: withKona.id, title: 'Journal', target_per_week: 3, today }); // side goal: not shown
+
+  let d = (await hank('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data;
+  assert.deepEqual(d.elsewhere.map((e) => [e.habit.title, e.pacts[0].with]), [['Read 20 pages', ['Kona']]]);
+  // Checked off from King's pact, it counts in Kona's.
+  await hank('POST', '/api/checkins', { habit_id: d.elsewhere[0].habit.id, status: 'done', today });
+  d = (await hank('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data;
+  assert.equal(d.elsewhere[0].today, 'done');
+  assert.equal(d.elsewhere[0].done, 1);
+  // King never sees Hank's goals with Kona.
+  assert.deepEqual((await king('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data.elsewhere, []);
+});

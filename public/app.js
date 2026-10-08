@@ -105,9 +105,17 @@
         if (x.goal_id !== undefined) factor.set(x.id, m[1]);
       }
       for (const a of d.amounts || []) if (factor.has(a.habit_id)) a.amount *= factor.get(a.habit_id);
+      for (const e of d.elsewhere || []) {
+        const m = METRIC[e.habit.unit];
+        if (!m) continue;
+        e.habit.daily_amount *= m[1];
+        e.habit.step *= m[1];
+        e.habit.unit = m[0];
+        e.amount *= m[1];
+      }
       for (const list of Object.values(d.weights || {})) for (const w of list) w.lb *= METRIC.lb[1];
     }
-    for (const x of [...d.habits, ...d.goals]) {
+    for (const x of [...d.habits, ...d.goals, ...(d.elsewhere || []).map((e) => e.habit)]) {
       const p = PRESETS.find((y) => y.key === x.icon && y.track);
       if (p && x.daily_amount > 0) x.title = p.title(Math.round((x.daily_amount / (p.track.per || 1)) * 100) / 100);
     }
@@ -556,6 +564,8 @@
           : `<p class="empty">${proposals.length ? 'Nothing is agreed yet. Requests are on Today.' : 'Agree on your first goal: tap + to propose one.'} You're both held to shared goals, and they're what your streak counts.</p>`}
       </section>
 
+      ${elsewhereSection()}
+
       <section class="block">
         ${sectionHead('side', 'Your side goals', sideMine.filter((h) => !h.archived_day).length)}
         <p class="section-note">Just yours. ${partnerName} can see them, but they don't count toward the streak.</p>
@@ -570,6 +580,38 @@
             : '';
         })
         .join('')}`;
+
+    // Shared goals from your other pacts that this one doesn't have, so the
+    // whole day is in one place. Check-offs log right here (and count there);
+    // amount goals open their pact.
+    function elsewhereSection() {
+      const list = d.elsewhere || [];
+      if (!list.length) return '';
+      const names = (e) => [...new Set(e.pacts.flatMap((p) => p.with))].join(', ') || e.pacts.map((p) => p.name).join(', ');
+      const rows = list.map((e) => {
+        const h = e.habit;
+        let control;
+        if (tracked(h)) control = `<button class="btn small" data-action="go-pact" data-pid="${e.pacts[0].id}">Open</button>`;
+        else if (e.today === 'done') control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
+        else if (e.today === 'missed') control = `<span class="tick-mark missed" aria-label="Missed today">${uiIcon('x')}</span>`;
+        else control = `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Mark ${esc(h.title)} done today">${uiIcon('done')}</button>`;
+        const amount = tracked(h) && !weekly(h) ? ` · ${esc(fmtAmount(e.amount, h.unit, true))} / ${esc(fmtAmount(h.daily_amount, h.unit))} today` : '';
+        return `
+          <div class="else-row ${e.today === 'done' ? 'done' : ''}">
+            <button type="button" class="else-name" data-action="go-pact" data-pid="${e.pacts[0].id}" aria-label="Open ${esc(e.pacts[0].name)}">
+              <span class="icon-tile sm">${iconSvg(h.icon)}</span>
+              <span class="else-text"><strong>${esc(h.title)}</strong><span class="small muted">With ${esc(names(e))} · ${e.done}/${e.target} this week${amount}</span></span>
+            </button>
+            ${control}
+          </div>`;
+      }).join('');
+      return `
+        <section class="block">
+          <h2 class="section-title">Shared in your other pacts</h2>
+          <p class="section-note">Not with ${partnerName}. Check them off here and they count there.</p>
+          <div class="card else-list">${rows}</div>
+        </section>`;
+    }
 
     // Progress: how it's going over time.
     const progress = () => `

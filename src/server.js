@@ -985,6 +985,9 @@ function createApp({
       ).all(p.id)) : { weeks: 0, tier: null, fullRun: 0, goldRun: 3, currentWeekMet: false, thisWeek: null, history: [] },
       events,
       last_seen_event_id,
+      // Your shared goals in your other pacts that this pact doesn't have,
+      // for the Goals tab. The same goal in two other pacts shows once.
+      elsewhere: sharedElsewhere(user.id, p.id, today, habits),
       // Goals waiting for your yes, in every pact you're in (for the badge).
       waiting: Object.fromEntries(q(
         `SELECT g.partnership_id AS id, COUNT(*) AS n FROM goals g JOIN memberships m ON m.partnership_id = g.partnership_id AND m.user_id = ?
@@ -996,6 +999,33 @@ function createApp({
         .map((id) => [id, q('SELECT day, lb FROM weights WHERE user_id = ? ORDER BY day').all(id)])),
     };
   });
+
+  function sharedElsewhere(userId, pid, today, habitsHere) {
+    const here = new Set(habitsHere.filter((h) => h.user_id === userId && !h.archived_day).map(linkKey));
+    const ws = L.weekStart(today);
+    const rows = q(
+      `SELECT h.* FROM habits h JOIN memberships m ON m.partnership_id = h.partnership_id AND m.user_id = h.user_id
+       WHERE h.user_id = ? AND h.partnership_id != ? AND h.goal_id IS NOT NULL AND h.archived_day IS NULL AND h.created_day <= ?
+       ORDER BY h.partnership_id, h.position, h.id`
+    ).all(userId, pid, today);
+    const byKey = new Map();
+    for (const h of rows) {
+      const key = linkKey(h);
+      if (here.has(key)) continue;
+      const pact = { id: h.partnership_id, name: pactName(h.partnership_id, userId), with: memberIds(h.partnership_id).filter((id) => id !== userId).map((id) => q('SELECT name FROM users WHERE id = ?').get(id)?.name).filter(Boolean) };
+      if (byKey.has(key)) { byKey.get(key).pacts.push(pact); continue; }
+      const checkins = q('SELECT day, status FROM checkins WHERE habit_id = ? AND day BETWEEN ? AND ?').all(h.id, ws, L.addDays(ws, 6));
+      byKey.set(key, {
+        habit: { id: h.id, title: h.title, icon: h.icon, daily_amount: h.daily_amount, unit: h.unit, step: h.step, amount_period: h.amount_period, target_per_week: h.target_per_week, schedule: h.schedule },
+        pacts: [pact],
+        today: checkins.find((c) => c.day === today)?.status || null,
+        amount: q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(h.id, today)?.amount || 0,
+        done: checkins.filter((c) => c.status === 'done').length,
+        target: L.effectiveTarget(h, ws),
+      });
+    }
+    return [...byKey.values()];
+  }
 
   // ---------- weight ----------
 
