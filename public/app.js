@@ -587,7 +587,6 @@
     function elsewhereSection() {
       const list = d.elsewhere || [];
       if (!list.length) return '';
-      const names = (e) => [...new Set(e.pacts.flatMap((p) => p.with))].join(', ') || e.pacts.map((p) => p.name).join(', ');
       const rows = list.map((e) => {
         const h = e.habit;
         let control;
@@ -600,7 +599,7 @@
           <div class="else-row ${e.today === 'done' ? 'done' : ''}">
             <button type="button" class="else-name" data-action="go-pact" data-pid="${e.pacts[0].id}" aria-label="Open ${esc(e.pacts[0].name)}">
               <span class="icon-tile sm">${iconSvg(h.icon)}</span>
-              <span class="else-text"><strong>${esc(h.title)}</strong><span class="small muted">With ${esc(names(e))} · ${e.done}/${e.target} this week${amount}</span></span>
+              <span class="else-text"><strong>${esc(h.title)}</strong><span class="small muted">${e.done}/${e.target} this week${amount}</span></span>
             </button>
             ${control}
           </div>`;
