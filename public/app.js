@@ -42,6 +42,9 @@
     dots: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
     flame: ICONS.calories,
     pact: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
+    home: '<path d="M4 11.2 12 4.5l8 6.7V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z"/>',
+    calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="3"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    chart: '<path d="M6 20v-5M12 20V10M18 20V4"/>',
   };
   const uiIcon = (key, cls = '') =>
     `<svg class="ui-icon ${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${UI_ICONS[key]}</svg>`;
@@ -152,6 +155,7 @@
     authMode: 'signup',
     panel: null, // { type: 'miss' | 'archive', habitId }
     addOpen: null, // which goal picker is open: 'shared' | 'side' | 'closed' | null
+    tab: ['today', 'goals', 'progress', 'more'].includes(store('aa.tab')) ? store('aa.tab') : 'today',
     preset: null, // selected preset key in the open picker
     expanded: new Set(), // shared goals opened to compare with your partner
     activityOpen: false, // the Activity feed dropdown
@@ -265,7 +269,9 @@
       ['weight', mine.length],
       ['pacts', mine.length],
     ];
-    return order.find(([k, ok]) => ok && !done.has(k))?.[0] || null;
+    // Only tips for what's on screen: Today's on Today, and so on.
+    const TIP_TAB = { 'needs-yes': 'today', log: 'today', 'amount-step': 'today', 'amount-typed': 'today', 'amount-week': 'today', board: 'today', pacts: 'today', compare: 'goals', circles: 'goals', wake: 'goals', challenge: 'goals', streak: 'progress', weight: 'progress' };
+    return order.find(([k, ok]) => ok && !done.has(k) && (!TIP_TAB[k] || TIP_TAB[k] === state.tab))?.[0] || null;
   }
 
   const TIPS = {
@@ -282,7 +288,7 @@
     challenge: () => 'This one has a finish line. When it ends, you both see how it went.',
     streak: () => 'Every log fills this bar for both of you. <strong>70%</strong> for the week keeps the streak alive.',
     weight: () => 'Log your weight here in the morning. <strong>Only you see it</strong> unless you share it.',
-    pacts: () => 'Tap your circles up top to switch pacts, start a new one, or find <strong>How it works</strong>.',
+    pacts: () => 'Your pacts, settings and <strong>How it works</strong> are under <strong>More</strong>. Your circles up top switch pacts too.',
   };
 
   // The tip's markup, once per page, only where and when it's the one that's up.
@@ -510,7 +516,8 @@
     state.tip = state.reorder ? null : nextTip();
     state.tipDrawn = false;
 
-    return `
+    const tab = state.tab;
+    const header = `
       <header class="top">
         <div>
           <p class="eyebrow">${esc(prettyDay(d.today))}</p>
@@ -521,28 +528,32 @@
           ${waitingTotal() ? `<span class="pair-badge" aria-label="${waitingTotal()} waiting for your yes">${waitingTotal()}</span>` : ''}
         </button>
       </header>
-      ${state.pactsOpen ? pactsMenu() : ''}
-      ${state.addOpen === 'shared' || state.reorder ? '' : tipAt('fab', 'tip-fab')}
-      ${state.addOpen === 'shared' || state.reorder ? '' : `<button type="button" class="fab ${state.fabHidden ? 'away' : ''}" data-action="open-propose" aria-label="Propose a shared goal">${uiIcon('plus')}</button>`}
+      ${state.pactsOpen && tab !== 'more' ? pactsMenu() : ''}`;
 
+    // Today: what to do right now, and who's done what.
+    const today = () => `
       ${wakeCard()}
       ${tipAt('pacts', 'tip-up')}
       ${progressCard()}
       ${pushPromptCard()}
       ${waiting ? inviteCard() : ''}
       ${state.recap && (state.recapOpen || !store(recapKey(state.recap))) ? recapCard(state.recap) : ''}
-      ${tipAt('streak')}
-      ${streakCard()}
       ${proposals.length ? proposalsCard(proposals) : ''}
+      <details class="block activity-drop"${state.activityOpen ? ' open' : ''}>
+        <summary class="section-title">Activity ${unread ? `<span class="badge">${unread} new</span>` : ''}${uiIcon('chevron', 'chev')}</summary>
+        <ol class="feed">${d.events.filter((e) => e.kind !== 'stakes').map(feedItem).join('') || '<li class="muted">Nothing yet.</li>'}</ol>
+      </details>`;
 
-      <section class="block">
+    // Goals: every goal's week, shared first, then side goals.
+    const goals = () => `
+      <section class="block first">
         ${sectionHead('shared', 'Shared goals', active.length)}
-        ${state.reorder === 'shared' ? reorderList() : addForm('shared', active.length === 0 && proposals.length === 0, partnerName)}
+        ${state.reorder === 'shared' ? reorderList() : addForm('shared', false, partnerName)}
         ${state.reorder === 'shared'
           ? ''
           : active.length
           ? active.map(goalCard).join('')
-          : `<p class="empty">${proposals.length ? 'Nothing is agreed yet.' : 'Agree on your first goal: tap + to propose one.'} You're both held to shared goals, and they're what your streak counts.</p>`}
+          : `<p class="empty">${proposals.length ? 'Nothing is agreed yet. Requests are on Today.' : 'Agree on your first goal: tap + to propose one.'} You're both held to shared goals, and they're what your streak counts.</p>`}
       </section>
 
       <section class="block">
@@ -551,8 +562,6 @@
         ${state.reorder === 'side' ? reorderList() : `${addForm('side', false, partnerName)}${sideMine.map((h) => sideCard(h)).join('')}`}
       </section>
 
-      ${weightCard()}
-
       ${partners
         .map((p) => {
           const theirs = d.habits.filter((h) => h.user_id === p.id && !h.goal_id).sort(byOrder);
@@ -560,19 +569,35 @@
             ? `<section class="block"><h2 class="section-title">${esc(p.name)}'s side goals</h2>${theirs.map((h) => sideCard(h)).join('')}</section>`
             : '';
         })
-        .join('')}
+        .join('')}`;
 
-      <details class="block activity-drop"${state.activityOpen ? ' open' : ''}>
-        <summary class="section-title">Activity ${unread ? `<span class="badge">${unread} new</span>` : ''}${uiIcon('chevron', 'chev')}</summary>
-        <ol class="feed">${d.events.filter((e) => e.kind !== 'stakes').map(feedItem).join('') || '<li class="muted">Nothing yet.</li>'}</ol>
-      </details>
+    // Progress: how it's going over time.
+    const progress = () => `
+      ${tipAt('streak')}
+      ${streakCard()}
+      ${weightCard()}`;
 
-      <footer class="foot">
-        ${window.AA_DEMO
-          ? '' // the preview is one pact with no accounts
-          : `<button class="link" data-action="new-pact">Start or join another pact</button>
-             <button class="link" data-action="logout">Log out</button>`}
-      </footer>`;
+    // More: pacts, settings, the guide.
+    const row = (action, icon, label, sub) => `
+      <button type="button" class="more-row" data-action="${action}">
+        <span class="icon-tile sm">${uiIcon(icon)}</span>
+        <span class="more-text"><strong>${label}</strong>${sub ? `<span class="small muted">${sub}</span>` : ''}</span>
+        ${uiIcon('chevron', 'more-chev')}
+      </button>`;
+    const more = () => `
+      ${pactsMenu()}
+      <section class="card more-list">
+        ${window.AA_DEMO ? '' : row('open-settings', 'pact', 'Account settings', 'Name, units, notifications, email, password')}
+        ${row('open-guide', 'star', 'How it works', 'Logging, the streak, challenges')}
+        ${row('tips-reset', 'bell', 'Show the tips again', 'The quick tour, as you go')}
+      </section>
+      ${window.AA_DEMO ? '' : `<footer class="foot"><button class="link" data-action="logout">Log out</button></footer>`}`;
+
+    return `
+      ${header}
+      ${{ today, goals, progress, more }[tab]()}
+      ${state.reorder ? '' : tipAt('fab', 'tip-fab')}
+      ${tabBar()}`;
   }
 
   // A section heading, with Reorder once there are two or more goals to order.
@@ -619,6 +644,27 @@
 
   // Tapping your avatars at the top: every pact you're in, and a way to start
   // or join another.
+  // ---------- tab bar ----------
+  // Today, Goals, the + (propose a shared goal), Progress, More.
+  const TABS = [['today', 'Today', 'home'], ['goals', 'Goals', 'calendar'], ['progress', 'Progress', 'chart'], ['more', 'More', 'dots']];
+  function tabBar() {
+    const d = state.dash;
+    const here = d.goals.filter((g) => g.status === 'proposed' && !isMe(g.proposed_by)).length;
+    const elsewhere = waitingTotal() - here;
+    const badge = { today: here, more: elsewhere > 0 ? elsewhere : 0 };
+    const btn = ([key, label, icon]) => `
+      <button type="button" class="tab ${state.tab === key ? 'on' : ''}" data-action="tab" data-tab="${key}" aria-current="${state.tab === key ? 'page' : 'false'}">
+        <span class="tab-icon">${uiIcon(icon)}${badge[key] ? `<span class="tab-badge">${badge[key]}</span>` : ''}</span>
+        <span class="tab-label">${label}</span>
+      </button>`;
+    return `
+      <nav class="tabbar" aria-label="Sections">
+        ${TABS.slice(0, 2).map(btn).join('')}
+        <div class="tab-mid"><button type="button" class="tab-plus ${state.addOpen === 'shared' ? 'open' : ''}" data-action="open-propose" aria-label="Propose a shared goal">${uiIcon('plus')}</button></div>
+        ${TABS.slice(2).map(btn).join('')}
+      </nav>`;
+  }
+
   // Goals waiting for your yes, in every pact (the badge on your circle).
   const waitingIn = (pid) => state.dash?.waiting?.[pid] || 0;
   const waitingTotal = () => Object.values(state.dash?.waiting || {}).reduce((a, b) => a + b, 0);
@@ -687,8 +733,8 @@
           : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
              <div class="pacts-foot">
                <button class="link" data-action="edit-pacts">Edit pacts</button>
-               <button class="link" data-action="open-guide">How it works</button>
-               ${window.AA_DEMO ? '' : `<button class="link" data-action="open-settings">Account settings</button>`}
+               ${state.tab === 'more' ? '' : `<button class="link" data-action="open-guide">How it works</button>
+               ${window.AA_DEMO ? '' : `<button class="link" data-action="open-settings">Account settings</button>`}`}
              </div>`}
       </section>`;
   }
@@ -1186,7 +1232,7 @@
         </div>
         <div class="board">${board}</div>
         ${tipAt('board')}${tipAt('log')}${tipAt('amount-step')}${tipAt('amount-typed')}${tipAt('amount-week')}
-        ${rows ? `<div class="today-list">${rows}</div>` : '<p class="small muted">Tap + to propose a shared goal, or add a side goal below, and your day shows up here.</p>'}
+        ${rows ? `<div class="today-list">${rows}</div>` : '<p class="small muted">Tap + to propose a shared goal, or add a side goal under Goals, and your day shows up here.</p>'}
       </section>`;
   }
 
@@ -2717,6 +2763,11 @@
       await refresh();
     },
     jump(el) {
+      if (state.tab !== 'goals') {
+        state.tab = 'goals';
+        store('aa.tab', 'goals');
+        render();
+      }
       const target = document.getElementById(el.dataset.target);
       if (!target) return;
       const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -2854,8 +2905,22 @@
       await enablePush();
     },
     // The + in the corner: open the propose form and bring it into view.
+    tab(el) {
+      const tab = el.dataset.tab;
+      if (tab === state.tab) return window.scrollTo({ top: 0, behavior: 'smooth' });
+      state.tab = tab;
+      store('aa.tab', tab);
+      state.pactsOpen = false;
+      state.panel = null;
+      if (state.addOpen === 'shared') state.addOpen = 'closed';
+      render();
+      window.scrollTo(0, 0);
+    },
     'open-propose'(el) {
       const from = el.getBoundingClientRect();
+      if (state.addOpen === 'shared') return app.querySelector('details.add-shared > summary')?.click(); // + again closes it
+      state.tab = 'goals';
+      store('aa.tab', 'goals');
       state.addOpen = 'shared';
       state.preset = null;
       state.pactsOpen = false;
@@ -3134,6 +3199,8 @@
   // button opens up to show all of it (no squashing of what's inside).
   const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   function fabRect() {
+    const plus = app.querySelector('.tab-plus');
+    if (plus) return plus.getBoundingClientRect();
     // Where the + sits (see .fab in styles.css), for closing back into it.
     const size = 60;
     return { left: window.innerWidth - 18 - size, top: window.innerHeight - 22 - size, width: size, height: size };
@@ -3174,21 +3241,9 @@
       state.addOpen = 'closed';
       state.preset = null;
       render();
-      app.querySelector('.fab')?.animate([{ transform: 'scale(0.6) rotate(-90deg)' }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)' });
+      app.querySelector('.tab-plus')?.animate([{ transform: 'scale(0.6) rotate(-90deg)' }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)' });
     });
   }, true);
-
-  // The + slides away while you scroll down and comes back when you scroll up.
-  let lastScroll = window.scrollY;
-  window.addEventListener('scroll', () => {
-    const y = window.scrollY;
-    if (Math.abs(y - lastScroll) < 8) return;
-    const hide = y > lastScroll && y > 80;
-    lastScroll = y;
-    if (hide === !!state.fabHidden) return;
-    state.fabHidden = hide;
-    app.querySelector('.fab')?.classList.toggle('away', hide);
-  }, { passive: true });
 
   app.addEventListener('pointerdown', weightHover);
   app.addEventListener('pointermove', weightHover);
