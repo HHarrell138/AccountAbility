@@ -43,7 +43,7 @@
     flame: ICONS.calories,
     pact: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
     home: '<path d="M4 11.2 12 4.5l8 6.7V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z"/>',
-    calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="3"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
     chart: '<path d="M6 20v-5M12 20V10M18 20V4"/>',
   };
   const uiIcon = (key, cls = '') =>
@@ -281,7 +281,7 @@
     'amount-step': () => 'Each tap of <strong>+</strong> adds to today. Hit the amount and it counts as done.',
     'amount-typed': () => 'Tap <strong>+</strong> and type where you\'re at <strong>now</strong>: at 30 g earlier and 170 g now? Type 170.',
     'amount-week': () => 'Miles add up across the week. Tap <strong>+</strong> after each run.',
-    board: () => 'That\'s both of you today. The same goal sits in the same spot on both bars.',
+    board: () => 'That\'s both of you today. <strong>Tap a name</strong> to see their list, and nudge or cheer from there.',
     compare: () => 'Tap <strong>Compare</strong> to see your partner\'s week. The bell nudges them; once they\'re done it turns into a star to cheer.',
     circles: () => '<strong>Tap any circle</strong> to see that day. Forgot yesterday? You can still log it there.',
     wake: () => 'Check off your wake-up when you\'re up. Your partner gets told you\'re up.',
@@ -646,7 +646,7 @@
   // or join another.
   // ---------- tab bar ----------
   // Today, Goals, the + (propose a shared goal), Progress, More.
-  const TABS = [['today', 'Today', 'home'], ['goals', 'Goals', 'calendar'], ['progress', 'Progress', 'chart'], ['more', 'More', 'dots']];
+  const TABS = [['today', 'Today', 'home'], ['goals', 'Goals', 'target'], ['progress', 'Progress', 'chart'], ['more', 'More', 'dots']];
   function tabBar() {
     const d = state.dash;
     const here = d.goals.filter((g) => g.status === 'proposed' && !isMe(g.proposed_by)).length;
@@ -1162,13 +1162,19 @@
 
   function progressCard() {
     const d = state.dash;
-    const { goals, items, due, done, missed, left } = dayStatus(d.me);
+    const { goals, due, done, missed, left } = dayStatus(d.me);
+    // Whose list is showing: yours by default, or a partner's after tapping
+    // their name on the board. Yours to log, theirs to nudge or cheer.
+    const whoId = d.members.some((m) => m.id === state.todayWho) ? state.todayWho : d.me;
+    const viewing = whoId === d.me ? null : d.members.find((m) => m.id === whoId);
+    const shown = viewing ? dayStatus(whoId) : { goals, items: dayStatus(d.me).items, due, done, missed, left };
 
     let meta;
-    if (!goals.length) meta = 'No goals yet';
-    else if (!due.length) meta = 'Nothing due today.';
-    else if (left === 0 && missed === 0) meta = '<strong>All done</strong> for today';
-    else meta = [left ? `<strong>${left} left</strong>` : '', missed ? `${missed} missed` : ''].filter(Boolean).join(' · ');
+    const who = viewing ? `${esc(viewing.name)}: ` : '';
+    if (!shown.goals.length) meta = viewing ? `${who}no goals yet` : 'No goals yet';
+    else if (!shown.due.length) meta = `${who}nothing due today`;
+    else if (shown.left === 0 && shown.missed === 0) meta = `${who}<strong>all done</strong> for today`;
+    else meta = who + [shown.left ? `<strong>${shown.left} left</strong>` : '', shown.missed ? `${shown.missed} missed` : ''].filter(Boolean).join(' · ');
 
     // Everyone's day at a glance: you first, then your partner.
     const people = [...d.members].sort((a, b) => (isMe(a.id) ? -1 : isMe(b.id) ? 1 : 0));
@@ -1178,21 +1184,28 @@
       .map((m, n) => {
         const st = statuses[n];
         const all = st.due.length && st.done === st.due.length;
+        const sel = people.length > 1 && m.id === whoId;
         return `
-          <div class="board-row ${whoClass(m.id)}">
+          <button type="button" class="board-row ${whoClass(m.id)} ${sel ? 'sel' : ''}" data-action="today-who" data-user="${m.id}" aria-pressed="${sel}" aria-label="Show ${isMe(m.id) ? 'your' : `${esc(m.name)}'s`} goals today">
             ${avatar(m)}
             <span class="board-name">${isMe(m.id) ? 'You' : esc(m.name)}</span>
             ${st.due.length
               ? `<div class="segments" role="img" aria-label="${isMe(m.id) ? 'You' : esc(m.name)}: ${st.done} of ${st.due.length} done today">${bars[n]}</div>
                  <span class="board-num ${all ? 'all' : ''}">${st.done}<span>/${st.due.length}</span></span>`
               : `<span class="board-none">Nothing due today</span>`}
-          </div>`;
+          </button>`;
       })
       .join('');
-    const rows = items
+    const rows = shown.items
       .map(({ h, status }) => {
         let control;
-        if (tracked(h) && status !== 'missed') {
+        if (viewing) {
+          // Theirs: the bell nudges, and once it's done it's a star to cheer.
+          const isDone = status === 'done' || status === 'rest';
+          control = status === 'missed'
+            ? `<span class="tick-mark missed" aria-label="Missed today">${uiIcon('x')}</span>`
+            : `<button class="tick them sm ${isDone ? 'soft' : ''}" data-action="send" data-kind="${isDone ? 'cheer' : 'nudge'}" data-user="${h.user_id}" data-habit="${h.id}" aria-label="${isDone ? 'Cheer' : 'Nudge'} ${esc(viewing.name)}: ${esc(h.title)}">${uiIcon(isDone ? 'star' : 'bell')}</button>`;
+        } else if (tracked(h) && status !== 'missed') {
           control = plusButton(h, status === 'done' || (weekly(h) && status === 'rest'), 'today', true);
         } else if (status === 'done') {
           control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
@@ -1219,20 +1232,20 @@
               ${note}
             </button>
             ${control}
-            ${tracked(h) && panelFor(h, 'today') ? amountPanel(h) : ''}
+            ${!viewing && tracked(h) && panelFor(h, 'today') ? amountPanel(h) : ''}
           </div>`;
       })
       .join('');
 
     return `
-      <section class="card progress-card" aria-label="Your progress today">
+      <section class="card progress-card ${viewing ? 'viewing-them' : ''}" aria-label="${viewing ? `${esc(viewing.name)}'s` : 'Your'} progress today">
         <div class="progress-head">
           <p class="eyebrow">Today</p>
           <p class="progress-meta">${meta}</p>
         </div>
         <div class="board">${board}</div>
         ${tipAt('board')}${tipAt('log')}${tipAt('amount-step')}${tipAt('amount-typed')}${tipAt('amount-week')}
-        ${rows ? `<div class="today-list">${rows}</div>` : '<p class="small muted">Tap + to propose a shared goal, or add a side goal under Goals, and your day shows up here.</p>'}
+        ${rows ? `<div class="today-list">${rows}</div>` : viewing ? `<p class="small muted">${esc(viewing.name)} has nothing set for today.</p>` : '<p class="small muted">Tap + to propose a shared goal, or add a side goal under Goals, and your day shows up here.</p>'}
       </section>`;
   }
 
@@ -2905,6 +2918,12 @@
       await enablePush();
     },
     // The + in the corner: open the propose form and bring it into view.
+    'today-who'(el) {
+      const id = Number(el.dataset.user);
+      state.todayWho = isMe(id) || state.todayWho === id ? null : id; // tap them again to come back to you
+      state.panel = null;
+      render();
+    },
     tab(el) {
       const tab = el.dataset.tab;
       if (tab === state.tab) return window.scrollTo({ top: 0, behavior: 'smooth' });

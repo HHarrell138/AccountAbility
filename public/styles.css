@@ -842,7 +842,9 @@ button.dot:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 
 /* ---------- today: everyone at a glance ---------- */
 .board { display: grid; gap: 10px; margin-top: 12px; }
-.board-row { display: grid; grid-template-columns: 30px 52px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.board-row { display: grid; grid-template-columns: 30px 52px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; margin: 0 -8px; padding: 6px 8px; box-sizing: content-box; border: 0; border-radius: 14px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.board-row.sel { box-shadow: inset 0 0 0 1.5px var(--line); }
+.board { gap: 4px !important; }
 .board-row .av { width: 30px; height: 30px; font-size: 0.8rem; }
 .board-name { font-weight: 700; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .board-row .segments { margin: 0; }
