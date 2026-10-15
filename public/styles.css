@@ -435,7 +435,7 @@ button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px soli
 .icon-tile:has(.i-protein) { --tile: var(--c-food-bg); --tint: var(--c-food); }
 .icon-tile:has(.i-calories), .icon-tile:has(.i-calorie-cap), .icon-tile:has(.i-wake) { --tile: var(--c-fire-bg); --tint: var(--c-fire); }
 .icon-tile:has(.i-prayer) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
-.icon-tile:has(.i-run), .icon-tile:has(.i-sober) { --tile: var(--c-move-bg); --tint: var(--c-move); }
+.icon-tile:has(.i-run), .icon-tile:has(.i-sober), .icon-tile:has(.i-stretch) { --tile: var(--c-move-bg); --tint: var(--c-move); }
 .icon-tile:has(.i-sleep), .icon-tile:has(.i-read) { --tile: var(--c-rest-bg); --tint: var(--c-rest); }
 .hicon { width: 26px; height: 26px; }
 

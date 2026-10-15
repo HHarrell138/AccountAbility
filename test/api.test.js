@@ -59,6 +59,8 @@ test('two people make a pact and hold each other accountable', async (t) => {
   const teeth = (await hank('POST', '/api/habits', { partnership_id: pid, title: 'Brush teeth twice a day', icon: 'teeth', target_per_week: 7, daily_amount: 2, unit: 'times', step: 1, today })).data.habit;
   assert.equal((await hank('POST', '/api/amounts', { habit_id: teeth.id, delta: 1, today })).data.done, false);
   assert.equal((await hank('POST', '/api/amounts', { habit_id: teeth.id, delta: 1, today })).data.done, true);
+  const stretch = (await hank('POST', '/api/habits', { partnership_id: pid, title: 'Stretch 3 times a day', icon: 'stretch', target_per_week: 7, daily_amount: 3, unit: 'times', step: 1, today })).data.habit;
+  for (const want of [false, false, true]) assert.equal((await hank('POST', '/api/amounts', { habit_id: stretch.id, delta: 1, today })).data.done, want);
   assert.equal(wake.data.habit.icon, 'wake');
   assert.equal((await hank('POST', '/api/habits', { partnership_id: pid, title: 'X', icon: '<script>', target_per_week: 7, today })).status, 400);
 

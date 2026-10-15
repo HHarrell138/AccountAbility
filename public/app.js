@@ -21,6 +21,7 @@
     run: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"/>',
     prayer: '<path d="M12 3.5c-1.6 1.6-2.6 4-2.6 6.8v3.6l-3.2 3.5 2.2 3.1 3.6-3.4z"/><path d="M12 3.5c1.6 1.6 2.6 4 2.6 6.8v3.6l3.2 3.5-2.2 3.1-3.6-3.4z"/>',
     creatine: '<path d="M3.5 10.5h12v2.5a6 6 0 0 1-12 0z"/><path d="M15.5 11.5h5"/><path d="M7 7.5l.8-2M10.5 7.5l.3-2.5M13.5 7.5l-.6-2"/>',
+    stretch: '<circle cx="12" cy="4.6" r="1.9"/><path d="M4.5 8.8l7.5 1.7 7.5-1.7M12 10.5v4.8l-3.6 5.4M12 15.3l3.6 5.4"/>',
     teeth: '<path d="M8 3.5c-2.5 0-4 1.8-4 4.3 0 2.3 1 3.6 1.6 5.7.6 2.2.9 6.5 2.6 6.5 1.6 0 1.6-4.4 3.8-4.4s2.2 4.4 3.8 4.4c1.7 0 2-4.3 2.6-6.5.6-2.1 1.6-3.4 1.6-5.7 0-2.5-1.5-4.3-4-4.3-1.6 0-2.6.8-4 .8s-2.4-.8-4-.8z"/>',
     weight: '<rect x="4" y="4" width="16" height="16" rx="4.5"/><path d="M8.5 10a5 5 0 0 1 7 0"/><path d="M12 10.2l1.3-1.8"/>',
     sober: '<path d="M7.5 3.5h9l-.6 5.2a3.9 3.9 0 0 1-7.8 0z"/><path d="M12 12.6v6.9M8.5 19.5h7"/><path d="M4 4l16 16"/>',
@@ -50,6 +51,7 @@
     `<svg class="ui-icon ${cls}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${UI_ICONS[key]}</svg>`;
 
   // Presets fill in the goal form. {n} is the amount the person picks.
+  const timesWord = (n) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
   const BASE_PRESETS = [
     // `track` = log as you go: the + button adds `step` of `unit` to today's total.
     { key: 'run', icon: 'run', label: 'Run', title: (n) => `Run ${n} mile${n === 1 ? '' : 's'} a week`, amount: 15, min: 1, unit: 'miles a week', track: { unit: 'mi', step: 1, period: 'week' } },
@@ -65,7 +67,9 @@
     { key: 'prayer', icon: 'prayer', label: 'Prayer', title: () => 'Dedicated prayer', days: 7 },
     { key: 'creatine', icon: 'creatine', label: 'Creatine', title: () => 'Take creatine', days: 7 },
     // Twice a day: a goal of 2, one tap per brushing. Morning and night is on you.
-    { key: 'teeth', icon: 'teeth', label: 'Brush teeth', title: () => 'Brush teeth twice a day', days: 7, fixed: 2, track: { unit: 'times', step: 1 } },
+    { key: 'teeth', icon: 'teeth', label: 'Brush teeth', title: (n = 2) => `Brush teeth ${timesWord(n)} a day`, days: 7, perDay: 2, track: { unit: 'times', step: 1 } },
+    // Times a day you pick: once is a plain check-off, more is one tap per time.
+    { key: 'stretch', icon: 'stretch', label: 'Stretch', title: (n = 1) => (n > 1 ? `Stretch ${timesWord(n)} a day` : 'Stretch'), days: 7, perDay: 1, track: { unit: 'times', step: 1 } },
     { key: 'sober', icon: 'sober', label: 'No alcohol', title: () => 'No alcohol', days: 7, challenge: 30 },
     { key: 'custom', icon: 'check', label: 'Custom goal', days: 5 },
   ];
@@ -1825,9 +1829,14 @@
                ${shared ? firstTime(`form-${preset.key}`, `<p class="small muted">${partnerName} sets their own times when they agree.</p>`) : ''}
                <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(schedTitle(preset.schedule, shared))}</span></p>
                <p class="small muted" data-role="preview-sub">${esc(schedLine(preset.schedule))}</p>`
-          : preset.fixed
-            ? `<p class="preview-title">${iconSvg(preset.icon)}<span>${esc(preset.title())}</span></p>
-               ${firstTime(`form-${preset.key}`, '<p class="small muted">Tap the check after you brush, morning and night. Two taps and today\'s done.</p>')}`
+          : preset.perDay
+            ? `<label for="${kind}-amount">Times a day
+                 <select id="${kind}-amount" name="amount" data-action="preset-amount">
+                   ${[1, 2, 3, 4].map((n) => `<option value="${n}" ${n === preset.perDay ? 'selected' : ''}>${n === 1 ? 'Once' : n === 2 ? 'Twice' : `${n} times`}</option>`).join('')}
+                 </select>
+               </label>
+               <p class="preview-title">${iconSvg(preset.icon)}<span data-role="preview">${esc(preset.title(preset.perDay))}</span></p>
+               ${firstTime(`form-${preset.key}`, `<p class="small muted">${preset.key === 'teeth' ? 'Tap the check after you brush, morning and night.' : 'More than once a day? Tap the check each time.'} Hit the number and today's done.</p>`)}`
           : preset.amount
             ? `<label for="${kind}-amount">How much? <span class="muted">(${esc(preset.unit)})</span>
                  <input id="${kind}-amount" name="amount" type="number" inputmode="decimal" min="${preset.min}" step="any" value="${preset.amount}" required data-action="preset-amount">
@@ -2222,7 +2231,8 @@
   const typed = (h) => h.icon === 'protein' || h.icon === 'calories';
   const weekly = (h) => tracked(h) && h.amount_period === 'week';
   // Brush teeth: two check-offs a day.
-  const twice = (h) => h.icon === 'teeth' && tracked(h);
+  // A few times a day (brush teeth, stretch): one tap per time.
+  const twice = (h) => h.unit === 'times' && tracked(h);
 
   // Days you can log: today, and yesterday (marked late). Mirrors canLog in
   // src/logic.js.
@@ -2332,7 +2342,7 @@
     if (mine && panelFor(h, 'card')) return amountPanel(h);
     return `
       <div class="amount-row ${whoClass(h.user_id)}">
-        <span class="amount-text">${twice(h) ? `<strong>${total}</strong> of ${target} today · ${total >= target ? 'morning and night done' : total ? 'one more to go' : 'morning and night'}` : `<strong>${esc(fmtAmount(total, h.unit, true))}</strong> / ${esc(fmtAmount(target, h.unit))} ${weekly(h) ? `this week${got ? ` · ${esc(fmtAmount(got, h.unit))} today` : ''}` : 'today'}`}</span>
+        <span class="amount-text">${twice(h) ? `<strong>${total}</strong> of ${target} today · ${h.icon === 'teeth' && target === 2 ? (total >= target ? 'morning and night done' : total ? 'one more to go' : 'morning and night') : total >= target ? 'done for today' : `${target - total} to go`}` : `<strong>${esc(fmtAmount(total, h.unit, true))}</strong> / ${esc(fmtAmount(target, h.unit))} ${weekly(h) ? `this week${got ? ` · ${esc(fmtAmount(got, h.unit))} today` : ''}` : 'today'}`}</span>
         <span class="bar ${whoClass(h.user_id)}"><span style="width:${pct}%"></span></span>
         ${mine
           ? `<span class="amount-tools">
@@ -2451,7 +2461,12 @@
     const total = weekly(h)
       ? `${fmtAmount(res.total, h.unit, true)} / ${fmtAmount(weekTarget(h), h.unit)} this week`
       : `${fmtAmount(res.amount, h.unit, true)} / ${fmtAmount(h.daily_amount, h.unit)}${day ? ` on ${dayName(day)}` : ''}`;
-    if (twice(h)) return toast(delta < 0 ? `Took one back. ${res.amount} of ${h.daily_amount} today.` : res.amount >= h.daily_amount ? 'Brushed. Both done today.' : 'Brushed. One more tonight.');
+    if (twice(h)) {
+      const brush = h.icon === 'teeth';
+      return toast(delta < 0 ? `Took one back. ${res.amount} of ${h.daily_amount} today.`
+        : res.amount >= h.daily_amount ? (brush ? 'Brushed. All done today.' : `Done. ${res.amount} of ${h.daily_amount} today.`)
+        : brush ? `Brushed. ${res.amount} of ${h.daily_amount} today.` : `Logged. ${res.amount} of ${h.daily_amount} today.`);
+    }
     // Linked pacts update quietly: it's the same number everywhere.
     toast(reset ? `Reset to 0. ${total}.` : res.done && !wasDone ? `${total}. Goal hit.` : delta > 0 ? `+${fmtAmount(delta, h.unit)} · ${total}` : `Took back ${fmtAmount(-delta, h.unit)} · ${total}`);
   }
@@ -2563,7 +2578,8 @@
         schedule = readSched(f);
         if (!Object.keys(schedule).length) throw new Error('Pick at least one day');
         title = schedTitle(schedule, f.dataset.kind === 'shared');
-      } else if (preset.amount) title = presetTitle(preset, f.amount.value);
+      } else if (preset.perDay) title = preset.title(Number(f.amount.value));
+      else if (preset.amount) title = presetTitle(preset, f.amount.value);
       else title = preset.title();
       if (!title) throw new Error(`Enter how many ${preset.unit}`);
       const shared = f.dataset.kind === 'shared';
@@ -2576,10 +2592,10 @@
         schedule,
         personal: shared && !!preset.personal,
         challenge_days: f.challenge_days ? Number(f.challenge_days.value) : 0,
-        ...(preset.track
+        ...(preset.track && !(preset.perDay && Number(f.amount.value) === 1) // once a day is a plain check-off
           ? {
               // Sent in stored units (oz, miles), whatever you typed in.
-              daily_amount: preset.fixed || toCanon(Number(f.amount.value) * (preset.track.per || 1), preset.track.unit),
+              daily_amount: preset.perDay ? Number(f.amount.value) : toCanon(Number(f.amount.value) * (preset.track.per || 1), preset.track.unit),
               unit: canonUnit(preset.track.unit),
               step: toCanon(preset.track.step, preset.track.unit), // change it later from the goal's ⋯ menu
               amount_period: preset.track.period || 'day',
