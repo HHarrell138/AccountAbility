@@ -594,14 +594,14 @@
       const rows = list.map((e) => {
         const h = e.habit;
         let control;
-        if (tracked(h)) control = `<button class="btn small" data-action="go-pact" data-pid="${e.pacts[0].id}">Open</button>`;
+        if (tracked(h)) control = `<button class="btn small" data-action="go-pact" data-pid="${e.pacts[0].id}" data-target="g-${h.goal_id}">Open</button>`;
         else if (e.today === 'done') control = `<button class="tick you on sm" data-action="undo-done" data-habit="${h.id}" data-day="${d.today}" aria-label="${esc(h.title)}: done today. Tap to undo.">${uiIcon('done')}</button>`;
         else if (e.today === 'missed') control = `<span class="tick-mark missed" aria-label="Missed today">${uiIcon('x')}</span>`;
         else control = `<button class="tick you sm" data-action="log-done" data-habit="${h.id}" data-day="${d.today}" aria-label="Mark ${esc(h.title)} done today">${uiIcon('done')}</button>`;
         const amount = tracked(h) && !weekly(h) ? ` · ${esc(fmtAmount(e.amount, h.unit, true))} / ${esc(fmtAmount(h.daily_amount, h.unit))} today` : '';
         return `
           <div class="else-row ${e.today === 'done' ? 'done' : ''}">
-            <button type="button" class="else-name" data-action="go-pact" data-pid="${e.pacts[0].id}" aria-label="Open ${esc(e.pacts[0].name)}">
+            <button type="button" class="else-name" data-action="go-pact" data-pid="${e.pacts[0].id}" data-target="g-${h.goal_id}" aria-label="Open ${esc(h.title)} in ${esc(e.pacts[0].name)}">
               <span class="icon-tile sm">${iconSvg(h.icon)}</span>
               <span class="else-text"><strong>${esc(h.title)}</strong><span class="small muted">${e.done}/${e.target} this week${amount}</span></span>
             </button>
@@ -3105,13 +3105,23 @@
       state.pactsOpen = false;
       const pid = Number(el.dataset.pid);
       if (pid === state.pid) return render();
+      if (el.dataset.target) {
+        state.tab = 'goals';
+        store('aa.tab', 'goals');
+      }
       state.pid = pid;
       state.panel = null;
       state.reorder = null;
       state.expanded = new Set();
       store('aa.pid', String(pid));
       await refresh();
-      window.scrollTo(0, 0);
+      // From "Shared in your other pacts": land on that goal's card, not the top.
+      const target = el.dataset.target && document.getElementById(el.dataset.target);
+      if (!target) return window.scrollTo(0, 0);
+      const smooth = !reduceMotion();
+      target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+      target.classList.add('landed');
+      setTimeout(() => target.classList.remove('landed'), 1600);
     },
     'new-pact'() {
       if (window.AA_DEMO) throw new Error('The preview is just you and King. Start or join another pact in the live app.');

@@ -1086,3 +1086,7 @@ body:has(.tabbar) #toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
 .else-text { display: flex; flex-direction: column; min-width: 0; }
 .else-text strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .else-row.done .else-text strong { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--you); }
+
+/* The card you just jumped to, from another pact: a brief outline. */
+.card.landed { box-shadow: 0 0 0 2px var(--you); transition: box-shadow 0.3s; }
+article.card { scroll-margin-top: 16px; }

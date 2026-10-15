@@ -1016,7 +1016,7 @@ function createApp({
       if (byKey.has(key)) { byKey.get(key).pacts.push(pact); continue; }
       const checkins = q('SELECT day, status FROM checkins WHERE habit_id = ? AND day BETWEEN ? AND ?').all(h.id, ws, L.addDays(ws, 6));
       byKey.set(key, {
-        habit: { id: h.id, title: h.title, icon: h.icon, daily_amount: h.daily_amount, unit: h.unit, step: h.step, amount_period: h.amount_period, target_per_week: h.target_per_week, schedule: h.schedule },
+        habit: { id: h.id, goal_id: h.goal_id, title: h.title, icon: h.icon, daily_amount: h.daily_amount, unit: h.unit, step: h.step, amount_period: h.amount_period, target_per_week: h.target_per_week, schedule: h.schedule },
         pacts: [pact],
         today: checkins.find((c) => c.day === today)?.status || null,
         amount: q('SELECT amount FROM amounts WHERE habit_id = ? AND day = ?').get(h.id, today)?.amount || 0,
