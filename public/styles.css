@@ -1,6 +1,6 @@
 /* AccountAbility
    Type: Bricolage Grotesque (display, numbers) + Figtree (text).
-   Look: one dark theme. Black ground, blue accents. You are blue, your
+   Look: one dark theme. Near-black ground, quiet cards, blue accents. You are blue, your
    partner is ice-white: avatars, week dots, progress bars and the round
    action buttons all follow that. Green, red and amber only mean status. */
 
@@ -8,13 +8,14 @@
   --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --font-text: "Figtree", "Avenir Next", "Segoe UI", system-ui, sans-serif;
 
-  --bg: #000000;
-  --surface: #0e1116;
-  --surface-2: #181c23;
+  --bg: #090b10;
+  --surface: #12151c;
+  --surface-2: #1b1f28;
   --ink: #f2f4f7;
-  --muted: #8a93a3;
-  --line: #1f242d;
-  --accent-line: #1b3a73;
+  --muted: #8b94a5;
+  --line: rgba(255, 255, 255, 0.06);
+  --ring: #2a303c; /* empty round buttons */
+  --accent-line: rgba(255, 255, 255, 0.06);
 
   --you: #2f7bff;
   --you-soft: #0d1f40;
@@ -46,7 +47,7 @@
   --c-move: #4fd1c5;
   --c-move-bg: #0d2a28;
 
-  --radius: 20px;
+  --radius: 22px;
   color-scheme: dark;
 }
 
@@ -1081,3 +1082,46 @@ body:has(.tabbar) #toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
 /* The card you just jumped to, from another pact: a brief outline. */
 .card.landed { box-shadow: 0 0 0 2px var(--you); transition: box-shadow 0.3s; }
 article.card { scroll-margin-top: 16px; }
+
+
+/* ---------- clean pass ----------
+   Fewer outlines and colors competing: cards are quiet surfaces, blue is
+   saved for what's yours and what's done, links don't underline. */
+.card { border-color: var(--line); margin: 12px 0; }
+.goal, .progress-card { border: 1px solid var(--line); }
+.proposals { border: 1px solid var(--line); }
+.proposals:not(.quiet) { box-shadow: inset 3px 0 0 var(--you); }
+.link { text-decoration: none; }
+.subline .link, .amount-tools .link { color: var(--muted); font-weight: 600; }
+.section-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; }
+.section-note { font-size: 0.84rem; }
+.block { margin-top: 26px; }
+.title { font-size: 1.75rem; }
+.why { font-size: 0.82rem; }
+
+/* Round buttons: a quiet gray ring until done, then solid blue. */
+.tick { border-width: 2px; border-color: var(--ring); }
+.tick.you { color: var(--you); }
+.tick.them { color: var(--them); }
+.tick.you.on { border-color: var(--you); }
+.tick.you.half { border-color: var(--you); }
+
+/* Today list: lighter dividers, no shouting. */
+.today-row + .today-row { border-top-color: var(--line); }
+.today-row.done .today-title { text-decoration-thickness: 1.5px; }
+
+/* Add a side goal: a plain row, not a dashed box. */
+.add { border: 1px solid var(--line); background: var(--surface); }
+.add summary { color: var(--ink); }
+.add summary .ui-icon:first-child { color: var(--you); }
+
+/* Week circles: a softer empty ring. */
+.dot { background: #1a1e27; box-shadow: inset 0 0 0 1.5px #2c333f; }
+.dot.done, .dot.missed, .dot.partial { box-shadow: none; }
+
+.tabbar { background: rgba(9, 11, 16, 0.92); }
+.tab-plus { box-shadow: 0 8px 24px rgba(47, 123, 255, 0.3), 0 0 0 5px var(--bg); }
+.tab-badge { border-color: var(--bg); }
+/* Today's circle: a thin ring, not a bullseye. */
+.dot.today { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px #4a5263; }
+.dot.today.done, .dot.today.missed, .dot.today.partial { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px #4a5263; }

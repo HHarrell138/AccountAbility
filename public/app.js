@@ -549,7 +549,7 @@
       ${progressCard()}
       ${pushPromptCard()}
       ${waiting ? inviteCard() : ''}
-      ${state.recap && (state.recapOpen || !store(recapKey(state.recap))) ? recapCard(state.recap) : ''}
+      ${state.recap && (state.recapOpen || (state.recap.pct != null && !store(recapKey(state.recap)))) ? recapCard(state.recap) : ''}
       ${proposals.length ? proposalsCard(proposals) : ''}
       <details class="block activity-drop"${state.activityOpen ? ' open' : ''}>
         <summary class="section-title">Activity ${unread ? `<span class="badge">${unread} new</span>` : ''}${uiIcon('chevron', 'chev')}</summary>
@@ -1273,7 +1273,6 @@
                     : twice(h) ? `${amountOn(h, d.today)} of ${h.daily_amount} today`
                     : `${esc(fmtAmount(amountOn(h, d.today), h.unit, true))} / ${esc(fmtAmount(h.daily_amount, h.unit))}`}</span>`
                 : ''}</span>
-              ${h.goal_id ? '<span class="tag">shared</span>' : ''}
               ${note}
             </button>
             ${control}
@@ -1729,6 +1728,7 @@
   }
 
   function proratedNote(h) {
+    return ''; // the week's count already shows the smaller first-week target
     if (weekly(h)) {
       const t = weekTarget(h);
       return t < h.daily_amount ? `<p class="note-line">First week, so it's ${esc(fmtAmount(t, h.unit))} this week instead of ${esc(fmtAmount(h.daily_amount, h.unit))}.</p>` : '';
