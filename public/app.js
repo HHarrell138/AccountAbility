@@ -167,7 +167,7 @@
     authMode: 'signup',
     panel: null, // { type: 'miss' | 'archive', habitId }
     addOpen: null, // which goal picker is open: 'shared' | 'side' | 'closed' | null
-    tab: ['today', 'goals', 'progress', 'more'].includes(store('aa.tab')) ? store('aa.tab') : 'today',
+    tab: store('aa.tab') === 'goals' ? 'goals' : 'today',
     preset: null, // selected preset key in the open picker
     expanded: new Set(), // shared goals opened to compare with your partner
     activityOpen: false, // the Activity feed dropdown
@@ -282,7 +282,7 @@
       ['pacts', mine.length],
     ];
     // Only tips for what's on screen: Today's on Today, and so on.
-    const TIP_TAB = { 'needs-yes': 'today', log: 'today', 'amount-step': 'today', 'amount-typed': 'today', 'amount-week': 'today', board: 'today', pacts: 'today', compare: 'goals', circles: 'goals', wake: 'goals', challenge: 'goals', streak: 'progress', weight: 'progress' };
+    const TIP_TAB = { 'needs-yes': 'today', log: 'today', 'amount-step': 'today', 'amount-typed': 'today', 'amount-week': 'today', board: 'today', pacts: 'today', compare: 'goals', circles: 'goals', wake: 'goals', challenge: 'goals', streak: 'today', weight: 'goals' };
     return order.find(([k, ok]) => ok && !done.has(k) && (!TIP_TAB[k] || TIP_TAB[k] === state.tab))?.[0] || null;
   }
 
@@ -300,7 +300,7 @@
     challenge: () => 'This one has a finish line. When it ends, you both see how it went.',
     streak: () => 'Every log fills this bar for both of you. <strong>70%</strong> for the week keeps the streak alive.',
     weight: () => 'Log your weight here in the morning. <strong>Only you see it</strong> unless you share it.',
-    pacts: () => 'Your pacts, settings and <strong>How it works</strong> are under <strong>More</strong>. Your circles up top switch pacts too.',
+    pacts: () => '<strong>Tap your circles</strong> up top for your pacts, Account settings and How it works.',
   };
 
   // The tip's markup, once per page, only where and when it's the one that's up.
@@ -540,7 +540,7 @@
           ${waitingTotal() ? `<span class="pair-badge" aria-label="${waitingTotal()} waiting for your yes">${waitingTotal()}</span>` : ''}
         </button>
       </header>
-      ${state.pactsOpen && tab !== 'more' ? pactsMenu() : ''}`;
+      ${state.pactsOpen ? pactsMenu() : ''}`;
 
     // Today: what to do right now, and who's done what.
     const today = () => `
@@ -551,6 +551,8 @@
       ${waiting ? inviteCard() : ''}
       ${state.recap && (state.recapOpen || (state.recap.pct != null && !store(recapKey(state.recap)))) ? recapCard(state.recap) : ''}
       ${proposals.length ? proposalsCard(proposals) : ''}
+      ${tipAt('streak')}
+      ${streakCard()}
       <details class="block activity-drop"${state.activityOpen ? ' open' : ''}>
         <summary class="section-title">Activity ${unread ? `<span class="badge">${unread} new</span>` : ''}${uiIcon('chevron', 'chev')}</summary>
         <ol class="feed">${d.events.filter((e) => e.kind !== 'stakes').map(feedItem).join('') || '<li class="muted">Nothing yet.</li>'}</ol>
@@ -583,7 +585,9 @@
             ? `<section class="block"><h2 class="section-title">${esc(p.name)}'s side goals</h2>${theirs.map((h) => sideCard(h)).join('')}</section>`
             : '';
         })
-        .join('')}`;
+        .join('')}
+
+      ${weightCard()}`;
 
     // Shared goals from your other pacts that this one doesn't have, so the
     // whole day is in one place. Check-offs log right here (and count there);
@@ -616,31 +620,9 @@
         </section>`;
     }
 
-    // Progress: how it's going over time.
-    const progress = () => `
-      ${tipAt('streak')}
-      ${streakCard()}
-      ${weightCard()}`;
-
-    // More: pacts, settings, the guide.
-    const row = (action, icon, label, sub) => `
-      <button type="button" class="more-row" data-action="${action}">
-        <span class="icon-tile sm">${uiIcon(icon)}</span>
-        <span class="more-text"><strong>${label}</strong>${sub ? `<span class="small muted">${sub}</span>` : ''}</span>
-        ${uiIcon('chevron', 'more-chev')}
-      </button>`;
-    const more = () => `
-      ${pactsMenu()}
-      <section class="card more-list">
-        ${window.AA_DEMO ? '' : row('open-settings', 'pact', 'Account settings', 'Name, units, notifications, email, password')}
-        ${row('open-guide', 'star', 'How it works', 'Logging, the streak, challenges')}
-        ${row('tips-reset', 'bell', 'Show the tips again', 'The quick tour, as you go')}
-      </section>
-      ${window.AA_DEMO ? '' : `<footer class="foot"><button class="link" data-action="logout">Log out</button></footer>`}`;
-
     return `
       ${header}
-      ${{ today, goals, progress, more }[tab]()}
+      ${{ today, goals }[tab]()}
       ${state.reorder ? '' : tipAt('fab', 'tip-fab')}
       ${tabBar()}`;
   }
@@ -691,12 +673,11 @@
   // or join another.
   // ---------- tab bar ----------
   // Today, Goals, the + (propose a shared goal), Progress, More.
-  const TABS = [['today', 'Today', 'home'], ['goals', 'Goals', 'target'], ['progress', 'Progress', 'chart'], ['more', 'More', 'dots']];
+  const TABS = [['today', 'Today', 'home'], ['goals', 'Goals', 'target']];
   function tabBar() {
     const d = state.dash;
     const here = d.goals.filter((g) => g.status === 'proposed' && !isMe(g.proposed_by)).length;
-    const elsewhere = waitingTotal() - here;
-    const badge = { today: here, more: elsewhere > 0 ? elsewhere : 0 };
+    const badge = { today: here }; // requests in other pacts show on your circles up top
     const btn = ([key, label, icon]) => `
       <button type="button" class="tab ${state.tab === key ? 'on' : ''}" data-action="tab" data-tab="${key}" aria-current="${state.tab === key ? 'page' : 'false'}">
         <span class="tab-icon">${uiIcon(icon)}${badge[key] ? `<span class="tab-badge">${badge[key]}</span>` : ''}</span>
@@ -704,9 +685,9 @@
       </button>`;
     return `
       <nav class="tabbar" aria-label="Sections">
-        ${TABS.slice(0, 2).map(btn).join('')}
+        ${btn(TABS[0])}
         <div class="tab-mid"><button type="button" class="tab-plus ${state.addOpen === 'shared' ? 'open' : ''}" data-action="open-propose" aria-label="Propose a shared goal">${uiIcon('plus')}</button></div>
-        ${TABS.slice(2).map(btn).join('')}
+        ${btn(TABS[1])}
       </nav>`;
   }
 
@@ -778,8 +759,9 @@
           : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
              <div class="pacts-foot">
                <button class="link" data-action="edit-pacts">Edit pacts</button>
-               ${state.tab === 'more' ? '' : `<button class="link" data-action="open-guide">How it works</button>
-               ${window.AA_DEMO ? '' : `<button class="link" data-action="open-settings">Account settings</button>`}`}
+               <button class="link" data-action="open-guide">How it works</button>
+               ${window.AA_DEMO ? '' : `<button class="link" data-action="open-settings">Account settings</button>`}
+               <button class="link" data-action="tips-reset">Show the tips again</button>
              </div>`}
       </section>`;
   }
