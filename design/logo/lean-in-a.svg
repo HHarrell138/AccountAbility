@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1724"/><stop offset="1" stop-color="#070a10"/></linearGradient></defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <!-- Two legs leaning on each other: you (light blue) and your partner (white). -->
+  <path d="M150 404 L246 126" stroke="#5cc2ff" stroke-width="62" stroke-linecap="round" fill="none"/>
+  <path d="M266 126 L362 404" stroke="#e8edf5" stroke-width="62" stroke-linecap="round" fill="none"/>
+  <path d="M206 306 H306" stroke="#5cc2ff" stroke-width="44" stroke-linecap="round" fill="none"/>
+</svg>

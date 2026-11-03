@@ -418,7 +418,7 @@
     if (focus) focus.focus();
   }
 
-  const logoMark = () => `<span class="mark">${uiIcon('pact')}</span>`;
+  const logoMark = () => `<img class="mark" src="/icon.svg" alt="" width="64" height="64">`;
 
   function authView() {
     if (state.authMode === 'reset') return resetView();
