@@ -190,6 +190,8 @@ function migrate(db) {
   // How you see amounts: 'us' (oz, miles, lb) or 'metric' (ml, km, kg).
   // Only the display: everything's stored in oz, miles and lb either way.
   if (!userCols.includes('units')) db.exec("ALTER TABLE users ADD COLUMN units TEXT NOT NULL DEFAULT 'us'");
+  // 'free' (up to 3 pacts) or 'unlimited'. Paid tiers will set this later.
+  if (!userCols.includes('plan')) db.exec("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'");
   if (!userCols.includes('share_weight')) db.exec('ALTER TABLE users ADD COLUMN share_weight INTEGER NOT NULL DEFAULT 0');
   if (!userCols.includes('notify_partner')) db.exec('ALTER TABLE users ADD COLUMN notify_partner INTEGER NOT NULL DEFAULT 1');
   if (!userCols.includes('last_reminded')) db.exec('ALTER TABLE users ADD COLUMN last_reminded TEXT');

@@ -92,6 +92,12 @@ function localNow(tz, now = new Date()) {
 // The wake-up alert goes out in the first minutes after your time (the job
 // runs once a minute, so this covers a missed tick or a restart).
 const WAKE_ALERT_MIN = 10;
+
+// Free accounts can be in up to 3 pacts; more is for paid plans. Accounts
+// whose email is in FOUNDER_EMAILS (comma-separated, set in the host's
+// settings, never in this public repo) are unlimited.
+const FREE_PACTS = 3;
+const founderEmails = () => (process.env.FOUNDER_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 const toMinutes = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
 // "05:30" -> "5:30 AM"
@@ -188,7 +194,7 @@ function createApp({
   }
 
   // What the app knows about you: who you are, and your notification settings.
-  const USER_FIELDS = `u.id, u.name, u.username, u.email, u.tz, u.remind_at, u.notify_partner, u.share_weight, u.units,
+  const USER_FIELDS = `u.id, u.name, u.username, u.email, u.tz, u.remind_at, u.notify_partner, u.share_weight, u.units, u.plan,
     (SELECT COUNT(*) FROM push_subs ps WHERE ps.user_id = u.id) AS push_count`;
   const currentUserById = (id) => q(`SELECT ${USER_FIELDS} FROM users u WHERE u.id = ?`).get(id);
 
@@ -740,10 +746,24 @@ function createApp({
       .all(user.id)
       .filter((l) => !partnerships.some((p) => p.id === l.partnership_id))
       .map(({ data, ...l }) => ({ ...l, deleted: JSON.parse(data).deleted }));
-    return { user, partnerships, left };
+    return { user, partnerships, left, pact_limit: pactLimit(user.id) };
   });
 
+  // How many pacts you can be in: null means no limit.
+  function pactLimit(userId) {
+    const u = q('SELECT email, plan FROM users WHERE id = ?').get(userId);
+    if (u?.plan === 'unlimited' || (u?.email && founderEmails().includes(u.email.toLowerCase()))) return null;
+    return FREE_PACTS;
+  }
+  function checkPactLimit(userId) {
+    const limit = pactLimit(userId);
+    if (limit === null) return;
+    const { n } = q('SELECT COUNT(*) AS n FROM memberships WHERE user_id = ?').get(userId);
+    if (n >= limit) fail(403, `The free plan has room for ${limit} pacts. Leave one to make room. More pacts are coming with paid plans.`);
+  }
+
   route('POST', '/api/partnerships', ({ user, body }) => {
+    checkPactLimit(user.id);
     const name = str(body.name, 'Name', { max: 60, required: false }) || `${user.name}'s pact`;
     const stakes = str(body.stakes, 'Stakes', { max: 200, required: false });
     const today = clientToday(body.today);
@@ -781,6 +801,7 @@ function createApp({
       }
       const { n } = q('SELECT COUNT(*) AS n FROM memberships WHERE partnership_id = ?').get(p.id);
       if (n >= p.max_members) fail(409, 'That pact is already full');
+      checkPactLimit(user.id);
       q('INSERT INTO memberships (partnership_id, user_id) VALUES (?, ?)').run(p.id, user.id);
       addEvent({ partnership_id: p.id, actor_id: user.id, kind: 'joined' });
       return { partnership: { id: p.id, name: p.name } };
@@ -833,6 +854,7 @@ function createApp({
       if (q('SELECT 1 FROM memberships WHERE partnership_id = ? AND user_id = ?').get(p.id, user.id)) fail(409, "You're already back in that pact");
       const { n } = q('SELECT COUNT(*) AS n FROM memberships WHERE partnership_id = ?').get(p.id);
       if (n >= p.max_members) fail(409, 'Someone else joined that pact since you left');
+      checkPactLimit(user.id);
       q('INSERT INTO memberships (partnership_id, user_id, last_seen_event_id, joined_at) VALUES (?, ?, ?, ?)').run(p.id, user.id, d.last_seen_event_id, d.joined_at);
       for (const id of d.habits) q('UPDATE habits SET archived_day = NULL WHERE id = ?').run(id);
       for (const id of d.ended) q(`UPDATE goals SET status = 'active' WHERE id = ? AND status = 'ended'`).run(id);

@@ -1254,3 +1254,37 @@ test('goals tab: shared goals from your other pacts that this one does not have'
   // King never sees Hank's goals with Kona.
   assert.deepEqual((await king('GET', `/api/partnerships/${withKing.id}/dashboard?today=${today}`)).data.elsewhere, []);
 });
+
+test('pact limit: 3 on the free plan, none for founder emails', async (t) => {
+  process.env.FOUNDER_EMAILS = ' Founder@Example.com ,other@example.com';
+  t.after(() => delete process.env.FOUNDER_EMAILS);
+  const server = createApp();
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const today = L.utcToday();
+  const free = client(base);
+  const founder = client(base);
+  await free('POST', '/api/signup', { name: 'Jake', email: 'jake@example.com', password: 'password123' });
+  await founder('POST', '/api/signup', { name: 'Hank', email: 'founder@example.com', password: 'password123' });
+
+  for (let i = 0; i < 3; i++) assert.equal((await free('POST', '/api/partnerships', { name: `P${i}`, today })).status, 200);
+  assert.equal((await free('GET', '/api/me')).data.pact_limit, 3);
+  const fourth = await free('POST', '/api/partnerships', { name: 'P4', today });
+  assert.equal(fourth.status, 403);
+  assert.match(fourth.data.error, /free plan has room for 3 pacts/);
+  // Joining someone else's counts too.
+  const theirs = (await founder('POST', '/api/partnerships', { name: 'Hank pact', today })).data.partnership;
+  assert.equal((await free('POST', '/api/partnerships/join', { code: theirs.invite_code })).status, 403);
+
+  // Leave one, and there's room again; undoing that leave is refused once full.
+  const mine = (await free('GET', '/api/me')).data.partnerships;
+  assert.equal((await free("POST", `/api/partnerships/${mine[0].id}/leave`, { today })).status, 200);
+  assert.equal((await free('POST', '/api/partnerships/join', { code: theirs.invite_code })).status, 200);
+  const left = (await free('GET', '/api/me')).data.left;
+  if (left.length) assert.equal((await free('POST', `/api/leaves/${left[0].id}/undo`, {})).status, 403);
+
+  // The founder has no limit.
+  assert.equal((await founder('GET', '/api/me')).data.pact_limit, null);
+  for (let i = 0; i < 4; i++) assert.equal((await founder('POST', '/api/partnerships', { name: `F${i}`, today })).status, 200);
+});

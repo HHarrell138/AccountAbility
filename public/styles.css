@@ -1146,3 +1146,4 @@ article.card { scroll-margin-top: 16px; }
 body:has(.tabbar) #toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
 .tip-fab { bottom: calc(104px + env(safe-area-inset-bottom)); }
 .tabbar .tab-badge { top: -9px; right: -4px; }
+.pact-limit { margin: 12px 0 0; }

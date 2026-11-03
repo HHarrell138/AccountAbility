@@ -360,6 +360,7 @@
       const me = await api('GET', '/api/me');
       state.user = me.user;
       state.partnerships = me.partnerships;
+      state.pactLimit = me.pact_limit ?? null;
       state.left = me.left || [];
       const saved = Number(store('aa.pid'));
       state.pid = (me.partnerships.find((p) => p.id === saved) || me.partnerships[0] || {}).id ?? null;
@@ -756,7 +757,16 @@
         ${recentlyLeft()}
         ${state.pactsEdit
           ? `<button class="btn wide" data-action="edit-pacts">Done</button>`
-          : `<button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
+          : state.pactLimit != null && state.partnerships.length >= state.pactLimit
+          ? `<p class="small muted pact-limit">You're in ${state.partnerships.length} of ${state.pactLimit} pacts on the free plan. Leave one to start or join another; more pacts are coming with paid plans.</p>
+             <div class="pacts-foot">
+               <button class="link" data-action="edit-pacts">Edit pacts</button>
+               <button class="link" data-action="open-guide">How it works</button>
+               ${window.AA_DEMO ? '' : `<button class="link" data-action="open-settings">Account settings</button>`}
+               <button class="link" data-action="tips-reset">Show the tips again</button>
+             </div>`
+          : `${state.pactLimit != null ? `<p class="small muted pact-limit">${state.partnerships.length} of ${state.pactLimit} pacts on the free plan.</p>` : ''}
+             <button class="btn wide" data-action="new-pact">${uiIcon('plus')}Start or join a pact</button>
              <div class="pacts-foot">
                <button class="link" data-action="edit-pacts">Edit pacts</button>
                <button class="link" data-action="open-guide">How it works</button>
@@ -2408,6 +2418,7 @@
     } catch (err) {
       const me = await api('GET', '/api/me');
       state.partnerships = me.partnerships;
+      state.pactLimit = me.pact_limit ?? null;
       state.pid = me.partnerships[0]?.id ?? null;
       if (state.pid) await loadDash();
       render();
@@ -2418,6 +2429,7 @@
   async function afterJoinOrCreate(pid) {
     const me = await api('GET', '/api/me');
     state.partnerships = me.partnerships;
+      state.pactLimit = me.pact_limit ?? null;
     state.pid = pid;
     store('aa.pid', String(pid));
     await refresh();
@@ -2537,6 +2549,7 @@
       state.pactRename = null;
       const me = await api('GET', '/api/me');
       state.partnerships = me.partnerships;
+      state.pactLimit = me.pact_limit ?? null;
       if (pid === state.pid) await loadDash();
       render();
       toast('Renamed. Only you see this name.');
